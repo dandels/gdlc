@@ -14,10 +14,12 @@ impl Config {
             Some(p) => p,
             None => return Self { map }, // early return
         };
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             config_path.push(".gdlc.conf");
         }
-        #[cfg(not(target_os = "windows"))] {
+        #[cfg(not(target_os = "windows"))]
+        {
             config_path.push(".config/");
             config_path.push("gdlc/");
             config_path.push("gdlc.conf");
@@ -26,16 +28,15 @@ impl Config {
             let mut buf = String::new();
             file.read_to_string(&mut buf).unwrap();
             for line in buf.lines() {
-                if let Some((key, value)) = line.split_once('=') {
-                    if !key.is_empty() && !value.is_empty() {
-                        map.insert(key.trim().to_string(), value.trim().to_string());
-                    }
+                if let Some((key, value)) = line.split_once('=')
+                    && !key.is_empty()
+                    && !value.is_empty()
+                {
+                    map.insert(key.trim().to_string(), value.trim().to_string());
                 }
             }
         }
-        Self {
-            map
-        }
+        Self { map }
     }
 
     pub fn installation_dir(&self) -> Option<PathBuf> {
@@ -73,7 +74,7 @@ impl Config {
         let softcore_stash = save_dir.join("transfer.gst");
         let hardcore_stash = save_dir.join("transfer.gsh");
 
-        (softcore_stash.exists().then(|| softcore_stash), hardcore_stash.exists().then(|| hardcore_stash))
+        (softcore_stash.exists().then_some(softcore_stash), hardcore_stash.exists().then_some(hardcore_stash))
     }
 
     pub fn get_databases(&self) -> Vec<PathBuf> {
@@ -105,13 +106,11 @@ impl Config {
 }
 
 fn return_valid_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
-        let mut ret = Vec::new();
-        for path in paths {
-            if path.exists() {
-                ret.push(path.to_path_buf());
-            }
+    let mut ret = Vec::new();
+    for path in paths {
+        if path.exists() {
+            ret.push(path.to_path_buf());
         }
-        ret
     }
-
-
+    ret
+}

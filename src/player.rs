@@ -10,7 +10,7 @@ use std::path::PathBuf;
 const EQUIPMENT_SLOTS: usize = 12;
 
 pub struct PlayerStash {
-    pub tabs: Vec<Vec<InventoryItem>>
+    pub tabs: Vec<Vec<InventoryItem>>,
 }
 impl PlayerStash {
     fn read(decrypt: &mut Decrypt) -> Result<PlayerStash, Error> {
@@ -23,9 +23,7 @@ impl PlayerStash {
             tabs.push(stash::read_stash_tab(decrypt)?);
         }
         decrypt.read_block_end(&block).unwrap();
-        Ok(PlayerStash { 
-            tabs
-        })
+        Ok(PlayerStash { tabs })
     }
 }
 
@@ -93,8 +91,9 @@ impl Inventory {
         assert_eq!(start, 3);
         assert_eq!(decrypt.read_int(), 4);
         let flag = decrypt.read_byte();
+        // TODO try cast to a proper boolean and test if that makes a difference
         if flag == 0 {
-            panic!("This byte was supposed to be 0. The file format will be wrong and I can't continue.");
+            println!("This byte was supposed to be 0. The file format might be wrong.");
         }
         let num_bags = decrypt.read_int();
         let focused = decrypt.read_int();

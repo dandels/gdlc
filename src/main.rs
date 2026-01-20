@@ -39,18 +39,18 @@ fn main() -> Result<(), Error> {
         return Ok(());
     }
 
-    if let Some(install_dir) = config.installation_dir() {
-        if !install_dir.exists() {
-            println!("The configured installation directory does not exist: {:?}", install_dir);
-            return Ok(());
-        }
+    if let Some(install_dir) = config.installation_dir()
+        && !install_dir.exists()
+    {
+        println!("The configured installation directory does not exist: {:?}", install_dir);
+        return Ok(());
     }
 
-    if let Some(save_dir) = config.save_dir() {
-        if !save_dir.exists() {
-            println!("The configured save directory does not exist: {:?}", save_dir);
-            return Ok(());
-        }
+    if let Some(save_dir) = config.save_dir()
+        && !save_dir.exists()
+    {
+        println!("The configured save directory does not exist: {:?}", save_dir);
+        return Ok(());
     }
 
     // Read game database files in new threads and send them to "db_done_rx"
