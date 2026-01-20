@@ -7,25 +7,26 @@ use std::sync::Arc;
 // use std::thread;
 
 #[derive(Clone, Debug)]
-pub struct ArzRecordHeader {
+pub struct ArzRecordHeader<'a> {
     string_index: u32,
-    record_type: String,
+    record_type: &'a str,
     offset: u32,
     size_compressed: u32,
     size_decompressed: u32,
 }
 
-impl ArzRecordHeader {
-    fn read(byte_vec: &mut ByteReader) -> Self {
-        let string_index = byte_vec.read_u32();
-        let str_len = byte_vec.read_u32();
-        let record_type = byte_vec.read_string(str_len);
+impl<'a> ArzRecordHeader<'a> {
+    fn read(byte_reader: &'a ByteReader) -> Self {
+        let string_index = byte_reader.read_u32();
+        let str_len = byte_reader.read_u32();
+        let record_type = byte_reader.read_str(str_len);
+
         Self {
             string_index,
             record_type,
-            offset: byte_vec.read_u32(),
-            size_compressed: byte_vec.read_u32(),
-            size_decompressed: byte_vec.read_u32(),
+            offset: byte_reader.read_u32(),
+            size_compressed: byte_reader.read_u32(),
+            size_decompressed: byte_reader.read_u32(),
         }
     }
 }
@@ -85,8 +86,9 @@ pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
     assert_eq!(archive_header.unknown, 2);
     assert_eq!(archive_header.version, 3);
 
-    let strings = Arc::new(read_strings(&mut reader, &archive_header));
-    let record_headers = read_record_headers(&mut reader, &archive_header);
+    let strings = Arc::new(read_strings(&reader, &archive_header));
+    // TODO split this based on whether it's an affix or not
+    let record_headers = read_record_headers(&reader, &archive_header);
 
     // let (tx, rx) = mpsc::channel();
     // let mut thethings: Vec<(String, Option<EntryType>, bool)> = Vec::new();
@@ -97,7 +99,7 @@ pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
     let mut affixes = Affixes::new();
 
     'header_loop: for record_header in record_headers {
-        let record_name = strings[record_header.string_index as usize].clone();
+        let record_name = strings[record_header.string_index as usize];
         // Uncomment to debug why something is not getting properly read
         // note for debugging: record_type.is_empty() also yields values
         //let catch = "records/items/crafting/blueprints/other/craft_potion_royaljellyointment.dbr";
@@ -158,15 +160,15 @@ pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
                 // let tx = tx.clone();
                 // TODO this spawns needlessly many threads
                 // thread::spawn(move || {
-                let data = decompress(&mut reader, &record_header);
+                let data = decompress(&reader, &record_header);
                 let is_affix = record_header.record_type == "LootRandomizer";
                 if is_affix {
-                    let affix = parse_affix(&record_header, data, &record_name, &strings);
-                    affixes.insert(record_name, affix);
+                    let affix = parse_affix(&record_header, data, record_name, &strings);
+                    affixes.insert(record_name.to_owned(), affix);
                 } else {
                     // TODO do item lvls still need to be fixed inside here?
-                    let entry = parse_item(&record_header, data, &record_name, &strings);
-                    items.insert(record_name, entry);
+                    let entry = parse_item(&record_header, data, record_name, &strings);
+                    items.insert(record_name.to_owned(), entry);
                 }
                 // tx.send(Some((record_name, entry, is_affix))).unwrap();
                 // });
@@ -230,6 +232,7 @@ pub struct AffixData {
     pub tag_name: Option<String>,
     pub rarity: String, // the affixes could be printed in color with this
     pub name: Option<String>,
+    pub level_req: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -245,7 +248,7 @@ fn parse_item(
     record_header: &ArzRecordHeader,
     data: Vec<u8>,
     record_name: &str,
-    strings: &[String],
+    strings: &[&str],
     // is_affix: bool,
 ) -> ItemData {
     let mut reader = ByteReader::from_vec(data);
@@ -274,35 +277,40 @@ fn parse_item(
                     // if value == "Mythical" {
                     // println!("{record_name} {entry_key}: {value}");
                     // }
-                    match entry_key.as_str() {
+                    match *entry_key {
                         "itemNameTag" => {
-                            tag_name = Some(value.clone());
+                            tag_name = Some(value.to_string());
                         }
                         "itemClassification" => {
-                            rarity = Some(value.clone());
+                            rarity = Some(value.to_string());
                         }
                         "description" => {
-                            description = Some(value.clone());
+                            description = Some(value.to_string());
                         }
                         _ => {
                             // println!("Field for item was {other}");
                         }
                     }
-                    EntryValue::Text(value.clone())
+                    EntryValue::Text(value.to_string())
                 }
                 _ => {
                     let int = reader.read_u32();
                     //Seems like the "levelRequirement" field isn't useful..?
-                    if entry_key.as_str() == "itemLevel" {
+                    if *entry_key == "levelRequirement" {
                         level_req = Some(int);
+                        // println!("Affix {record_name} had req {int}");
                     }
+                    // if *entry_key == "itemLevel" {
+                    //     level_req = Some(int);
+                    //     println!("Affix {record_name} item lvl was {int}");
+                    // }
                     EntryValue::Int(int)
                 }
             };
 
             // Stop reading data once we found what we came for.
             // We only need these fields for items (when !is_affix)
-            if tag_name.is_some() && level_req.is_some() && rarity.is_some() {
+            if (tag_name.is_some() || description.is_some()) && level_req.is_some() && rarity.is_some() {
                 break 'outer;
             }
             // These are actually only used when debugging
@@ -364,13 +372,7 @@ fn parse_item(
     // }
 }
 
-fn parse_affix(
-    record_header: &ArzRecordHeader,
-    data: Vec<u8>,
-    record_name: &str,
-    strings: &[String],
-    // is_affix: bool,
-) -> AffixData {
+fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, record_name: &str, strings: &[&str]) -> AffixData {
     let mut reader = ByteReader::from_vec(data);
 
     #[cfg(debug)]
@@ -378,32 +380,32 @@ fn parse_affix(
     let mut tag_name: Option<String> = None; // used by most items and affixes
     // let mut description: Option<String> = None; // fallback for relics that don't have itemNameTag
     let mut rarity: Option<String> = None;
-    // let mut level_req: Option<u32> = None;
-
-    //println!("Processing record: {record_name}");
+    let mut level_req: Option<u32> = None;
 
     let mut i = 0;
     'outer: while i < record_header.size_decompressed / 4 {
         let entry_header = EntryHeader::read(&mut reader);
         i += 2 + entry_header.entry_count as u32;
         let entry_key = &strings[entry_header.string_index as usize];
-        //println!("entry key {entry_key}");
         for _ in 0..entry_header.entry_count {
             match entry_header.entry_type {
-                // 1 => EntryValue::Float(reader.read_f32()),
+                1 => {
+                    let _ = EntryValue::Float(reader.read_f32());
+                }
                 2 => {
                     let int = reader.read_u32();
                     let value = &strings[int as usize];
-                    if value == "Mythical" {
+                    if *value == "Mythical" {
                         println!("{record_name} {entry_key}: {value}");
                     }
-                    match entry_key.as_str() {
+                    match *entry_key {
                         "lootRandomizerName" => {
-                            tag_name = Some(value.clone());
+                            tag_name = Some(value.to_string());
                         }
                         "itemClassification" => {
-                            rarity = Some(value.clone());
-                        } // "description" => {
+                            rarity = Some(value.to_string());
+                        }
+                        // "description" => {
                         //     description = Some(value.clone());
                         // }
                         _ => {
@@ -412,17 +414,15 @@ fn parse_affix(
                     }
                     // EntryValue::Text(value.clone())
                 }
-                _ => {
-                    reader.index += 4;
-                } // num => {
-                  //     let int = reader.read_u32();
-                  //     // println!("Entry type for affix is {num}, int is {int}");
-                  //     //Seems like the "levelRequirement" field isn't useful..?
-                  //     // if entry_key.as_str() == "itemLevel" {
-                  //     // level_req = Some(int);
-                  //     // }
-                  //     EntryValue::Int(int)
-                  // }
+                num => {
+                    let int = reader.read_u32();
+                    // println!("Entry type for affix is {num}, int is {int}");
+                    //Seems like the "levelRequirement" field isn't useful..?
+                    if *entry_key == "itemLevel" {
+                        level_req = Some(int);
+                    }
+                    // EntryValue::Int(int)
+                }
             };
 
             if tag_name.is_some() && rarity.is_some() {
@@ -451,38 +451,43 @@ fn parse_affix(
         tag_name,
         rarity,
         name: None,
+        level_req,
     }
 }
 
-fn decompress(byte_vec: &mut ByteReader, header: &ArzRecordHeader) -> Vec<u8> {
-    byte_vec.index = header.offset as usize + 24;
-    let end = byte_vec.index + header.size_compressed as usize;
-    let slice = &byte_vec.bytes[byte_vec.index..end];
+fn decompress(byte_reader: &ByteReader, header: &ArzRecordHeader) -> Vec<u8> {
+    byte_reader.index.set(header.offset as usize + 24);
+    let slice = &byte_reader.read_n_bytes(header.size_compressed);
     lz4::block::decompress(slice, Some(header.size_decompressed.try_into().unwrap())).unwrap()
 }
 
-fn read_record_headers(byte_vec: &mut ByteReader, header: &ArzArchiveHeader) -> Vec<ArzRecordHeader> {
+fn read_record_headers<'a>(byte_reader: &'a ByteReader, header: &ArzArchiveHeader) -> Vec<ArzRecordHeader<'a>> {
     let mut records = Vec::new();
-    byte_vec.index = header.records_start as usize;
+    let mut index = header.records_start as usize;
+    byte_reader.index.set(index);
     for _ in 0..header.records_count {
-        let record = ArzRecordHeader::read(byte_vec);
+        let record = ArzRecordHeader::read(byte_reader);
+        index = byte_reader.index.get();
         records.push(record);
-        byte_vec.index += 8;
+        index += 8;
+        byte_reader.index.set(index);
     }
     records
 }
 
-fn read_strings(byte_vec: &mut ByteReader, header: &ArzArchiveHeader) -> Vec<String> {
+fn read_strings<'a>(byte_reader: &'a ByteReader, header: &'a ArzArchiveHeader) -> Vec<&'a str> {
     let mut strings = Vec::new();
-    byte_vec.index = (header.strings_start) as usize;
+    let mut index = header.strings_start as usize;
+    byte_reader.index.set(index);
     let end = (header.strings_start + header.strings_size) as usize;
-    while byte_vec.index < end {
-        let count = byte_vec.read_u32();
+    while index < end {
+        let count = byte_reader.read_u32();
         for _ in 0..count {
-            let len = byte_vec.read_u32();
-            let string = byte_vec.read_string(len);
+            let len = byte_reader.read_u32();
+            let string = byte_reader.read_str(len);
             strings.push(string);
         }
+        index = byte_reader.index.get();
     }
     strings
 }

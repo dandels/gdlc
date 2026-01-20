@@ -1,7 +1,8 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::io::Error;
 use super::ByteReader;
+use std::collections::HashMap;
+use std::ffi::CStr;
+use std::io::Error;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -62,7 +63,8 @@ impl ArcArchiveHeader {
 }
 
 #[derive(Debug)]
-struct ArcRecordPartMetadata { // are these partial or whole records?
+struct ArcRecordPartMetadata {
+    // are these partial or whole records?
     pub offset: u32,
     pub len_compressed: u32,
     pub len_decompressed: u32,
@@ -86,18 +88,18 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
     let record_headers = read_record_headers(&mut byte_vec, &archive_header);
     let record_parts_metadata = read_record_metadata(&mut byte_vec, &archive_header);
 
-    let strings = read_strings(&mut byte_vec, &archive_header);
+    let strings = read_strings(&byte_vec, &archive_header);
     //let mut items_index = None;
     let mut indices = Vec::new();
     for (i, string) in strings.iter().enumerate() {
         let file_names = [
-            "tags_items.txt",
-            "tagsgdx1_items.txt",
-            "tagsgdx2_items.txt",
-            "tagsgdx2_endlessdungeon.txt",
-            "tags_storyelements.txt",
-            "tagsgdx1_storyelements.txt",
-            "tagsgdx2_storyelements.txt",
+            c"tags_items.txt",
+            c"tagsgdx1_items.txt",
+            c"tagsgdx2_items.txt",
+            c"tagsgdx2_endlessdungeon.txt",
+            c"tags_storyelements.txt",
+            c"tagsgdx1_storyelements.txt",
+            c"tagsgdx2_storyelements.txt",
         ];
         if file_names.iter().any(|s| string == s) {
             indices.push(i);
@@ -109,7 +111,7 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
         let data = decompress(&mut byte_vec, &record_parts_metadata[i]);
         for string in String::from_utf8(data).unwrap().lines() {
             if string.is_empty() || string.starts_with("#") {
-                continue
+                continue;
             }
             if let Some((key, value)) = string.split_once('=') {
                 map.insert(key.to_string(), value.to_string());
@@ -119,46 +121,51 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
     Ok(map)
 }
 
-fn read_record_metadata(byte_vec: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordPartMetadata> {
-        let mut record_metadatas: Vec<ArcRecordPartMetadata> = Vec::with_capacity(header.records_count as usize);
-        byte_vec.index = header.record_offset as usize;
-        for _ in 0..header.records_count {
-            record_metadatas.push(ArcRecordPartMetadata::new(byte_vec));
-        }
-        record_metadatas
+fn read_record_metadata(byte_reader: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordPartMetadata> {
+    let mut record_metadatas: Vec<ArcRecordPartMetadata> = Vec::with_capacity(header.records_count as usize);
+    byte_reader.index.set(header.record_offset as usize);
+    for _ in 0..header.records_count {
+        record_metadatas.push(ArcRecordPartMetadata::new(byte_reader));
+    }
+    record_metadatas
 }
 
-fn read_strings(byte_vec: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<String> {
+fn read_strings<'a>(byte_reader: &'a ByteReader, header: &ArcArchiveHeader) -> Vec<&'a CStr> {
     let mut strings = Vec::new();
-    byte_vec.index = (header.record_offset + header.record_len) as usize;
+    byte_reader.index.set((header.record_offset + header.record_len) as usize);
 
     for _ in 0..header.files_count {
-        let string = byte_vec.read_null_string().unwrap();
+        let string = byte_reader.read_cstr();
         strings.push(string);
     }
     strings
 }
 
-fn read_record_headers(byte_vec: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordHeader> {
+fn read_record_headers(byte_reader: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordHeader> {
     let mut records = Vec::new();
-    byte_vec.index = (header.record_offset + header.record_len + header.string_table_len) as usize;
+
+    byte_reader.index.set((header.record_offset + header.record_len + header.string_table_len) as usize);
     for _ in 0..header.files_count {
-        records.push(ArcRecordHeader::new(byte_vec));
+        records.push(ArcRecordHeader::new(byte_reader));
     }
     records
 }
 
-fn decompress(byte_vec: &mut ByteReader, metadata: &ArcRecordPartMetadata) -> Vec<u8> {
+fn decompress(byte_reader: &mut ByteReader, metadata: &ArcRecordPartMetadata) -> Vec<u8> {
     let mut data: Vec<u8> = Vec::new();
-    byte_vec.index = metadata.offset as usize;
+    byte_reader.index.set(metadata.offset as usize);
     if metadata.len_compressed == metadata.len_decompressed {
-        data.append(&mut byte_vec.read_n_bytes(metadata.len_compressed).to_vec());
+        data.append(&mut byte_reader.read_n_bytes(metadata.len_compressed).to_vec());
     } else {
         let mut buf = vec![0; metadata.len_decompressed as usize];
-        let compressed_data = &byte_vec.read_n_bytes(metadata.len_compressed);
-        lz4::block::decompress_to_buffer(compressed_data, Some(metadata.len_decompressed.try_into().unwrap()), &mut buf).unwrap();
+        let compressed_data = &byte_reader.read_n_bytes(metadata.len_compressed);
+        lz4::block::decompress_to_buffer(
+            compressed_data,
+            Some(metadata.len_decompressed.try_into().unwrap()),
+            &mut buf,
+        )
+        .unwrap();
         data.append(&mut buf.to_vec());
     }
     data
 }
-

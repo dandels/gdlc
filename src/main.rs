@@ -70,6 +70,7 @@ fn main() -> Result<(), Error> {
             let mut tag_names = TagNames::default();
             for rcv in receivers {
                 if let Ok((items, affixes)) = rcv.recv() {
+                    // TODO this probably copies data around
                     tag_names.items.extend(items);
                     tag_names.affixes.extend(affixes);
                 }

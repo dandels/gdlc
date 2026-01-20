@@ -211,7 +211,7 @@ impl ItemLookup {
             }
         // There are some items with blank fields that might be unused assets. Otherwise log an error.
         } else if !inventory_item.base_name.is_empty() {
-            println!("No tag found for {}", inventory_item.base_name);
+            // println!("No tag found for {}", inventory_item.base_name);
         }
     }
 }
