@@ -1,3 +1,5 @@
+use crate::byte_reader;
+
 use super::ByteReader;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -88,7 +90,7 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
     let record_headers = read_record_headers(&mut byte_vec, &archive_header);
     let record_parts_metadata = read_record_metadata(&mut byte_vec, &archive_header);
 
-    let strings = read_strings(&byte_vec, &archive_header);
+    let strings = read_strings(&mut byte_vec, &archive_header);
     //let mut items_index = None;
     let mut indices = Vec::new();
     for (i, string) in strings.iter().enumerate() {
@@ -123,19 +125,19 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
 
 fn read_record_metadata(byte_reader: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordPartMetadata> {
     let mut record_metadatas: Vec<ArcRecordPartMetadata> = Vec::with_capacity(header.records_count as usize);
-    byte_reader.index.set(header.record_offset as usize);
+    byte_reader.index = header.record_offset as usize;
     for _ in 0..header.records_count {
         record_metadatas.push(ArcRecordPartMetadata::new(byte_reader));
     }
     record_metadatas
 }
 
-fn read_strings<'a>(byte_reader: &'a ByteReader, header: &ArcArchiveHeader) -> Vec<&'a CStr> {
+fn read_strings<'a>(byte_reader: &'a mut ByteReader, header: &ArcArchiveHeader) -> Vec<&'a CStr> {
     let mut strings = Vec::new();
-    byte_reader.index.set((header.record_offset + header.record_len) as usize);
+    byte_reader.index = (header.record_offset + header.record_len) as usize;
 
     for _ in 0..header.files_count {
-        let string = byte_reader.read_cstr();
+        let string = byte_reader::read_cstr(&byte_reader.bytes, &mut byte_reader.index);
         strings.push(string);
     }
     strings
@@ -144,7 +146,7 @@ fn read_strings<'a>(byte_reader: &'a ByteReader, header: &ArcArchiveHeader) -> V
 fn read_record_headers(byte_reader: &mut ByteReader, header: &ArcArchiveHeader) -> Vec<ArcRecordHeader> {
     let mut records = Vec::new();
 
-    byte_reader.index.set((header.record_offset + header.record_len + header.string_table_len) as usize);
+    byte_reader.index = (header.record_offset + header.record_len + header.string_table_len) as usize;
     for _ in 0..header.files_count {
         records.push(ArcRecordHeader::new(byte_reader));
     }
@@ -153,7 +155,7 @@ fn read_record_headers(byte_reader: &mut ByteReader, header: &ArcArchiveHeader) 
 
 fn decompress(byte_reader: &mut ByteReader, metadata: &ArcRecordPartMetadata) -> Vec<u8> {
     let mut data: Vec<u8> = Vec::new();
-    byte_reader.index.set(metadata.offset as usize);
+    byte_reader.index = metadata.offset as usize;
     if metadata.len_compressed == metadata.len_decompressed {
         data.append(&mut byte_reader.read_n_bytes(metadata.len_compressed).to_vec());
     } else {

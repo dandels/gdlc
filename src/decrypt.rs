@@ -24,7 +24,7 @@ impl Decrypt {
         let mut file = File::open(path)?;
         let mut bytes = Vec::new();
         let _len = file.read_to_end(&mut bytes)?;
-        let reader = ByteReader::from_vec(bytes);
+        let mut reader = ByteReader::from_vec(bytes);
         let key = reader.read_u32() ^ 0x55555555;
         let mut k = key;
         let mut table = [0; 256];
@@ -118,13 +118,13 @@ impl Decrypt {
     pub fn read_block_start(&mut self) -> (u32, Block) {
         let block_start = self.read_int();
         let len = self.next_int();
-        let index: u32 = self.byte_reader.index.get().try_into().unwrap();
+        let index: u32 = self.byte_reader.index.try_into().unwrap();
         let end = index + len;
         (block_start, Block { len, end })
     }
 
     pub fn read_block_end(&mut self, block: &Block) -> Result<bool, ()> {
-        let index: u32 = self.byte_reader.index.get().try_into().unwrap();
+        let index: u32 = self.byte_reader.index.try_into().unwrap();
         if block.end != index {
             println!("Stream position is {index} but block end is {}. Delta: {}", block.end, index.abs_diff(block.end));
             Err(())

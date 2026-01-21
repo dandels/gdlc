@@ -1,4 +1,4 @@
-use crate::arz_parser::{AffixData, EntryType, ItemData};
+use crate::arz_parser::{AffixData, ItemData};
 use crate::inventory_item::InventoryItem;
 
 use std::collections::HashMap;
@@ -121,16 +121,12 @@ impl Display for CompleteItem {
 
 impl ItemLookup {
     pub fn lookup_item(&self, inventory_item: &InventoryItem) -> Option<CompleteItem> {
-        let itemdata = self.tag_names.items.get(&inventory_item.base_name);
-        if itemdata.is_none() {
-            return None;
-        }
         let ItemData {
-            record_name,
+            record_name: _record_name,
             tag_name,
             rarity,
             level_req,
-        } = itemdata.unwrap();
+        } = self.tag_names.items.get(&inventory_item.base_name)?;
         // if let Some((EntryType::Item(_record_name, tag_name, item_rarity, level_req), ilvls)) =
         //     self.tag_names.items.get(&inventory_item.base_name)
         // {
@@ -147,30 +143,32 @@ impl ItemLookup {
 
             let mut prefix: Option<String> = None;
             let mut prefix_rarity = Rarity::CommonOrUnknown;
-            if !inventory_item.prefix_name.is_empty() {
-                if let Some(affix_info) = self.tag_names.affixes.get(&inventory_item.prefix_name) {
-                    prefix_rarity = Rarity::from(&affix_info.rarity);
-                    if let Some(affix_name) = &affix_info.name {
-                        prefix = Some(affix_name.clone());
-                    } else if let Some(tag_name) = &affix_info.tag_name
-                        && let Some(name) = self.localization_data.get(tag_name)
-                    {
-                        prefix = Some(name.clone());
-                    }
+            if !inventory_item.prefix_name.is_empty()
+                && let Some(prefix_info) = self.tag_names.affixes.get(&inventory_item.prefix_name)
+            {
+                prefix_rarity = Rarity::from(&prefix_info.rarity);
+                if let Some(prefix_name) = prefix_info.name.get() {
+                    prefix = Some(prefix_name.clone());
+                } else if let Some(tag_name) = &prefix_info.tag_name
+                    && let Some(name) = self.localization_data.get(tag_name)
+                {
+                    let _ = prefix_info.name.set(name.clone());
+                    prefix = Some(name.clone());
                 }
             }
-            let mut suffix = None;
+            let mut suffix: Option<String> = None;
             let mut suffix_rarity = Rarity::CommonOrUnknown;
-            if !inventory_item.suffix_name.is_empty() {
-                if let Some(affix_info) = self.tag_names.affixes.get(&inventory_item.suffix_name) {
-                    suffix_rarity = Rarity::from(&affix_info.rarity);
-                    if let Some(name) = &affix_info.name {
-                        suffix = Some(name.clone());
-                    } else if let Some(tag_name) = &affix_info.tag_name
-                        && let Some(name) = self.localization_data.get(tag_name)
-                    {
-                        suffix = Some(name.clone());
-                    }
+            if !inventory_item.suffix_name.is_empty()
+                && let Some(suffix_info) = self.tag_names.affixes.get(&inventory_item.suffix_name)
+            {
+                suffix_rarity = Rarity::from(&suffix_info.rarity);
+                if let Some(suffix_name) = suffix_info.name.get() {
+                    suffix = Some(suffix_name.clone());
+                } else if let Some(tag_name) = &suffix_info.tag_name
+                    && let Some(name) = self.localization_data.get(tag_name)
+                {
+                    let _ = suffix_info.name.set(name.clone());
+                    suffix = Some(name.clone());
                 }
             }
             let quantity = inventory_item.stack_count;
