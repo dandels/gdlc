@@ -14,9 +14,10 @@ pub struct TagNames {
     pub affixes: HashMap<String, AffixData>,
 }
 
+#[derive(Debug)]
 pub struct ItemLookup {
     pub search_term: String,
-    pub localization_data: HashMap<String, String>,
+    pub localization_data: LocalizationStrings,
     pub tag_names: TagNames,
 }
 
@@ -126,78 +127,80 @@ impl ItemLookup {
             tag_name,
             rarity,
             level_req,
+            name,
         } = self.tag_names.items.get(&inventory_item.base_name)?;
         // if let Some((EntryType::Item(_record_name, tag_name, item_rarity, level_req), ilvls)) =
         //     self.tag_names.items.get(&inventory_item.base_name)
         // {
-        if let Some(item_name) = self.localization_data.get(tag_name) {
-            // Uncomment to get record name and tag name of an item that the player has
-            //if item_name == "Baldir's Mantle" {
-            //    //println!("mantle is {record_name}, {tag_name}");
-            //    println!("{:?}", inventory_item);
-            //}
-            // TODO fix this logic, hashmap needs to count tagnames and not record names
-            // if ilvls.len() > 1 {
-            // println!("{item_name} has {} tiers", ilvls.len());
-            // }
+        let item_name: &String = match name.get() {
+            Some(name) => Some(name),
+            None => self.localization_data.get(tag_name),
+        }?;
+        // Uncomment to get record name and tag name of an item that the player has
+        //if item_name == "Baldir's Mantle" {
+        //    //println!("mantle is {record_name}, {tag_name}");
+        //    println!("{:?}", inventory_item);
+        //}
+        // TODO fix this logic, hashmap needs to count tagnames and not record names
+        // if ilvls.len() > 1 {
+        // println!("{item_name} has {} tiers", ilvls.len());
+        // }
 
-            let mut prefix: Option<String> = None;
-            let mut prefix_rarity = Rarity::CommonOrUnknown;
-            if !inventory_item.prefix_name.is_empty()
-                && let Some(prefix_info) = self.tag_names.affixes.get(&inventory_item.prefix_name)
+        let mut prefix: Option<String> = None;
+        let mut prefix_rarity = Rarity::CommonOrUnknown;
+        if !inventory_item.prefix_name.is_empty()
+            && let Some(prefix_info) = self.tag_names.affixes.get(&inventory_item.prefix_name)
+        {
+            prefix_rarity = Rarity::from(&prefix_info.rarity);
+            if let Some(prefix_name) = prefix_info.name.get() {
+                prefix = Some(prefix_name.clone());
+            } else if let Some(tag_name) = &prefix_info.tag_name
+                && let Some(name) = self.localization_data.get(tag_name)
             {
-                prefix_rarity = Rarity::from(&prefix_info.rarity);
-                if let Some(prefix_name) = prefix_info.name.get() {
-                    prefix = Some(prefix_name.clone());
-                } else if let Some(tag_name) = &prefix_info.tag_name
-                    && let Some(name) = self.localization_data.get(tag_name)
-                {
-                    let _ = prefix_info.name.set(name.clone());
-                    prefix = Some(name.clone());
-                }
+                let _ = prefix_info.name.set(name.clone());
+                prefix = Some(name.clone());
             }
-            let mut suffix: Option<String> = None;
-            let mut suffix_rarity = Rarity::CommonOrUnknown;
-            if !inventory_item.suffix_name.is_empty()
-                && let Some(suffix_info) = self.tag_names.affixes.get(&inventory_item.suffix_name)
-            {
-                suffix_rarity = Rarity::from(&suffix_info.rarity);
-                if let Some(suffix_name) = suffix_info.name.get() {
-                    suffix = Some(suffix_name.clone());
-                } else if let Some(tag_name) = &suffix_info.tag_name
-                    && let Some(name) = self.localization_data.get(tag_name)
-                {
-                    let _ = suffix_info.name.set(name.clone());
-                    suffix = Some(name.clone());
-                }
-            }
-            let quantity = inventory_item.stack_count;
-
-            let mut item_name = item_name.clone();
-            let item_rarity = {
-                /* Rare components have this for some reason... Let's give them their own color since we aren't
-                 * detecting them in any other way. */
-                if item_name.starts_with("^k") {
-                    item_name.drain(0..2);
-                    Rarity::RareComponent
-                } else {
-                    Rarity::from(rarity)
-                }
-            };
-
-            Some(CompleteItem {
-                name: item_name,
-                item_rarity,
-                prefix,
-                prefix_rarity,
-                suffix,
-                suffix_rarity,
-                level_req: *level_req,
-                quantity,
-            })
-        } else {
-            None
         }
+        let mut suffix: Option<String> = None;
+        let mut suffix_rarity = Rarity::CommonOrUnknown;
+        if !inventory_item.suffix_name.is_empty()
+            && let Some(suffix_info) = self.tag_names.affixes.get(&inventory_item.suffix_name)
+        {
+            suffix_rarity = Rarity::from(&suffix_info.rarity);
+            if let Some(suffix_name) = suffix_info.name.get() {
+                suffix = Some(suffix_name.clone());
+            } else if let Some(tag_name) = &suffix_info.tag_name
+                && let Some(name) = self.localization_data.get(tag_name)
+            {
+                let _ = suffix_info.name.set(name.clone());
+                suffix = Some(name.clone());
+            }
+        }
+        let quantity = inventory_item.stack_count;
+
+        let mut item_name = item_name.clone();
+        let item_rarity = {
+            /* Rare components have this for some reason... Let's give them their own color since we aren't
+             * detecting them in any other way. */
+            if item_name.starts_with("^k") {
+                item_name.drain(0..2);
+                Rarity::RareComponent
+            } else {
+                Rarity::from(rarity)
+            }
+        };
+
+        Some(CompleteItem {
+            name: item_name,
+            item_rarity,
+            prefix,
+            prefix_rarity,
+            suffix,
+            suffix_rarity,
+            // TODO FIXME
+            level_req: *level_req,
+            quantity,
+        })
     }
 
     pub fn check_item(&self, inventory_item: &InventoryItem, item_source: &str) {
