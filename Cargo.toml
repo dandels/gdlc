@@ -1,8 +1,9 @@
 [package]
 name = "gdlc"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
 lz4 = "1.28"
 colored = "3.0.0"
+rayon = "1.11.0"

@@ -1,10 +1,11 @@
+use rayon::iter::Either;
 use rayon::prelude::*;
 
 use crate::byte_reader::{self, ByteReader};
 use std::collections::HashMap;
 use std::io::Error;
 use std::path::PathBuf;
-use std::sync::{OnceLock, mpsc};
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug)]
 pub struct ArzRecordHeader {
@@ -88,115 +89,77 @@ pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
 
     let record_headers = read_record_headers(&mut byte_reader, &archive_header);
     let strings = &read_strings(&byte_reader.bytes, &mut byte_reader.index, &archive_header);
-    // let (tx, rx) = mpsc::channel();
 
-    let mut items = Items::new();
-    let mut affixes = Affixes::new();
+    let (affixes, items): (Affixes, Items) = record_headers
+        .par_iter()
+        .filter_map(|record_header| {
+            const ITEM_TYPES: [&str; 4] = ["Armor", "QuestItem", "Weapon", "OneShot_Scroll"];
+            const IGNORED_ITEMS: [&str; 4] = [
+                "ItemTransmuter",
+                "ItemTransmuterSet",
+                "ItemSetFormula",
+                "ItemRandomSetFormula",
+            ];
+            const IGNORED_AFFIXES: [&str; 5] = [
+                // Searching for unique affixes. Maybe later.
+                "records/items/lootaffixes/prefixunique/",
+                "records/items/lootaffixes/suffixunique/",
+                "records/items/lootaffixes/completionrelics",
+                "records/items/lootaffixes/completion",
+                "records/items/lootaffixes/crafting",
+            ];
 
-    // thread::scope(|s| {
-    // let mut handles = Vec::new();
+            let record_name;
 
-    // Iterate over the records in this many threads
-    // More are still created on-demand.
-    // const THREAD_COUNT: usize = 100;
-    // let record_chunks = record_headers.chunks(record_headers.len() % THREAD_COUNT);
-
-    // let tx = &tx;
-    // let byte_reader = &byte_reader;
-    // for header in record_headers {
-    // let strings = &strings;
-    // let record_headers = &record_headers;
-    // let handle = s.spawn(move || {
-    // let mut inner_thread_count = 0;
-
-    record_headers.par_iter().for_each(|record_header| {
-        let record_name = strings[record_header.string_index as usize].to_string();
-
-        if record_header.record_type.starts_with("Armor")
-            || record_header.record_type.starts_with("Item")
-            || record_header.record_type.starts_with("QuestItem")
-            || record_header.record_type.starts_with("Weapon")
-            || record_header.record_type.starts_with("OneShot_Scroll")
-            // starts_with() would also match "LootRandomizerTable"
-            || record_header.record_type == "LootRandomizer"
-        {
-            if record_header.record_type.starts_with("Item") {
-                let ignore_list = [
-                    "ItemTransmuter",
-                    "ItemTransmuterSet",
-                    "ItemSetFormula",
-                    "ItemRandomSetFormula",
-                ];
-                for ign in ignore_list {
-                    if record_header.record_type.starts_with(ign) {
-                        // continue 'header_loop;
-                        return;
+            match record_header.record_type.as_str() {
+                // handle affix
+                "LootRandomizer" => {
+                    record_name = strings[record_header.string_index as usize].to_string();
+                    if IGNORED_AFFIXES.iter().any(|s| record_name.starts_with(s)) {
+                        return None;
                     }
-                }
 
-                //println!("{}", record_header.record_type);
-            }
-            if record_name.starts_with("records/items/")
-                || record_name.starts_with("records/creatures/npcs/npcgear/")
-                || record_name.starts_with("records/storyelements/")
-                || record_name.starts_with("records/endlessdungeon/")
-            {
-                //println!("record type {}", record_header.record_type);
-                let ignore_list = [
-                    "records/items/enemygear/",
-                    "records/items/transmutes/",
-                    // Searching for unique affixes. Maybe later.
-                    "records/items/lootaffixes/prefixunique/",
-                    "records/items/lootaffixes/suffixunique/",
-                    "records/items/lootaffixes/completionrelics",
-                    "records/items/lootaffixes/completion",
-                    "records/items/lootaffixes/crafting",
-                ];
-                for ign in ignore_list {
-                    if record_name.starts_with(ign) {
-                        // continue 'header_loop;
-                        return;
-                    }
-                }
-
-                // inner_thread_count += 1;
-                let mut byte_reader = byte_reader.clone();
-                // s.spawn(move || {
-                let data = decompress(&mut byte_reader, record_header);
-                let is_affix = record_header.record_type == "LootRandomizer";
-
-                if is_affix {
+                    let mut byte_reader = byte_reader.clone();
+                    let data = decompress(&mut byte_reader, record_header);
                     let affix = parse_affix(record_header, data, strings);
-                    affixes.insert(record_name, affix);
-                    // tx.send((record_name, EntryType::Affix(affix))).unwrap();
-                } else {
-                    let item = parse_item(record_header, data, &record_name, strings);
-                    items.insert(record_name, item);
-                    // tx.send((record_name, EntryType::Item(item))).unwrap();
+                    Some((record_name, EntryType::Affix(affix)))
                 }
-                // });
-            }
-        }
-    });
-    // inner_thread_count
-    // });
-    // handles.push(handle);
-    // }
+                // handle items
+                str if ITEM_TYPES.iter().any(|s| str.starts_with(s))
+                    || str.starts_with("Item") && !IGNORED_ITEMS.iter().any(|s| str.starts_with(s)) =>
+                {
+                    record_name = strings[record_header.string_index as usize].to_string();
 
-    // for thread in handles {
-    //     for _ in 0..thread.join().unwrap() {
-    //         let (record_name, entry) = rx.recv().unwrap();
-    //         match entry {
-    //             EntryType::Affix(data) => {
-    //                 affixes.insert(record_name.clone(), data);
-    //             }
-    //             EntryType::Item(data) => {
-    //                 items.insert(record_name.clone(), data);
-    //             }
-    //         }
-    //     }
-    // }
-    // });
+                    const INCLUDED_RECORDS: [&str; 3] = [
+                        "records/creatures/npcs/npcgear/",
+                        "records/storyelements/",
+                        "records/endlessdungeon/",
+                    ];
+                    const IGNORE_LIST: [&str; 2] = ["records/items/enemygear/", "records/items/transmutes/"];
+
+                    let handle_record = match record_name.as_str() {
+                        str if INCLUDED_RECORDS.iter().any(|s| str.starts_with(s)) => true,
+                        str if str.starts_with("records/items/") && !IGNORE_LIST.iter().any(|s| str.starts_with(s)) => {
+                            true
+                        }
+                        _ => false,
+                    };
+                    if !handle_record {
+                        return None;
+                    }
+                    let mut byte_reader = byte_reader.clone();
+                    let data = decompress(&mut byte_reader, record_header);
+
+                    let item = parse_item(record_header, data, &record_name, strings);
+                    Some((record_name, EntryType::Item(item)))
+                }
+                _ => None,
+            }
+        })
+        .partition_map(|(record_name, entry)| match entry {
+            EntryType::Affix(affix_data) => Either::Left((record_name, affix_data)),
+            EntryType::Item(item_data) => Either::Right((record_name, item_data)),
+        });
     Ok((items, affixes))
 }
 
