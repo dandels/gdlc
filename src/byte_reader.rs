@@ -8,7 +8,7 @@ use std::sync::Arc;
 // Allow cloning the reader to have multiple views into the same underlying data
 #[derive(Clone)]
 pub struct ByteReader {
-    pub bytes: Arc<Vec<u8>>,
+    pub bytes: Arc<[u8]>,
     pub index: usize,
 }
 
@@ -27,14 +27,23 @@ impl ByteReader {
         let mut bytes = Vec::new();
         let _len = file.read_to_end(&mut bytes)?;
         Ok(Self {
-            bytes: Arc::new(bytes),
+            bytes: bytes.into(),
             index: 0,
         })
     }
 
-    pub fn from_vec(bytes: Vec<u8>) -> Self {
+    // pub fn from(bytes: Vec<u8>) -> Self {
+    //     Self {
+    //         bytes: bytes.into(),
+    //         index: 0,
+    //     }
+    // }
+
+    pub fn from<T>(bytes: T) -> Self
+    where
+        T: Into<Arc<[u8]>>, {
         Self {
-            bytes: Arc::new(bytes),
+            bytes: bytes.into(),
             index: 0,
         }
     }

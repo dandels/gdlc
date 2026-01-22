@@ -1,9 +1,10 @@
+use rayon::prelude::*;
+
 use crate::byte_reader::{self, ByteReader};
 use std::collections::HashMap;
 use std::io::Error;
 use std::path::PathBuf;
 use std::sync::{OnceLock, mpsc};
-use std::thread;
 
 #[derive(Clone, Debug)]
 pub struct ArzRecordHeader {
@@ -85,119 +86,117 @@ pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
     assert_eq!(archive_header.unknown, 2);
     assert_eq!(archive_header.version, 3);
 
-    let now = std::time::Instant::now();
     let record_headers = read_record_headers(&mut byte_reader, &archive_header);
-    println!("Record headers took {:.2?}", now.elapsed());
-    let now = std::time::Instant::now();
     let strings = &read_strings(&byte_reader.bytes, &mut byte_reader.index, &archive_header);
-    println!("Strings took {:.2?}", now.elapsed());
-
-    let (tx, rx) = mpsc::channel();
+    // let (tx, rx) = mpsc::channel();
 
     let mut items = Items::new();
     let mut affixes = Affixes::new();
 
-    thread::scope(|s| {
-        let mut handles = Vec::new();
+    // thread::scope(|s| {
+    // let mut handles = Vec::new();
 
-        // Iterate over the records in this many threads
-        // More are still created on-demand.
-        const THREAD_COUNT: usize = 10;
-        let record_chunks = record_headers.chunks(record_headers.len() % THREAD_COUNT);
-        println!("chunk len is {}", record_chunks.len());
+    // Iterate over the records in this many threads
+    // More are still created on-demand.
+    // const THREAD_COUNT: usize = 100;
+    // let record_chunks = record_headers.chunks(record_headers.len() % THREAD_COUNT);
 
-        let tx = &tx;
-        let byte_reader = &byte_reader;
-        for thread_work in record_chunks {
-            // let strings = &strings;
-            // let record_headers = &record_headers;
-            let handle = s.spawn(move || {
-                let mut inner_thread_count = 0;
+    // let tx = &tx;
+    // let byte_reader = &byte_reader;
+    // for header in record_headers {
+    // let strings = &strings;
+    // let record_headers = &record_headers;
+    // let handle = s.spawn(move || {
+    // let mut inner_thread_count = 0;
 
-                'header_loop: for record_header in thread_work {
-                    let record_name = strings[record_header.string_index as usize].to_string();
+    record_headers.par_iter().for_each(|record_header| {
+        let record_name = strings[record_header.string_index as usize].to_string();
 
-                    if record_header.record_type.starts_with("Armor")
+        if record_header.record_type.starts_with("Armor")
             || record_header.record_type.starts_with("Item")
             || record_header.record_type.starts_with("QuestItem")
             || record_header.record_type.starts_with("Weapon")
             || record_header.record_type.starts_with("OneShot_Scroll")
             // starts_with() would also match "LootRandomizerTable"
             || record_header.record_type == "LootRandomizer"
-                    {
-                        if record_header.record_type.starts_with("Item") {
-                            let ignore_list = [
-                                "ItemTransmuter",
-                                "ItemTransmuterSet",
-                                "ItemSetFormula",
-                                "ItemRandomSetFormula",
-                            ];
-                            for ign in ignore_list {
-                                if record_header.record_type.starts_with(ign) {
-                                    continue 'header_loop;
-                                }
-                            }
-
-                            //println!("{}", record_header.record_type);
-                        }
-                        if record_name.starts_with("records/items/")
-                            || record_name.starts_with("records/creatures/npcs/npcgear/")
-                            || record_name.starts_with("records/storyelements/")
-                            || record_name.starts_with("records/endlessdungeon/")
-                        {
-                            //println!("record type {}", record_header.record_type);
-                            let ignore_list = [
-                                "records/items/enemygear/",
-                                "records/items/transmutes/",
-                                // Searching for unique affixes. Maybe later.
-                                "records/items/lootaffixes/prefixunique/",
-                                "records/items/lootaffixes/suffixunique/",
-                                "records/items/lootaffixes/completionrelics",
-                                "records/items/lootaffixes/completion",
-                                "records/items/lootaffixes/crafting",
-                            ];
-                            for ign in ignore_list {
-                                if record_name.starts_with(ign) {
-                                    continue 'header_loop;
-                                }
-                            }
-
-                            inner_thread_count += 1;
-                            let mut byte_reader = byte_reader.clone();
-                            s.spawn(move || {
-                                let data = decompress(&mut byte_reader, record_header);
-                                let is_affix = record_header.record_type == "LootRandomizer";
-                                if is_affix {
-                                    let affix = parse_affix(record_header, data, strings);
-                                    tx.send((record_name, EntryType::Affix(affix))).unwrap();
-                                } else {
-                                    // TODO do item lvls still need to be fixed inside here?
-                                    let item = parse_item(record_header, data, &record_name, strings);
-                                    tx.send((record_name, EntryType::Item(item))).unwrap();
-                                }
-                            });
-                        }
+        {
+            if record_header.record_type.starts_with("Item") {
+                let ignore_list = [
+                    "ItemTransmuter",
+                    "ItemTransmuterSet",
+                    "ItemSetFormula",
+                    "ItemRandomSetFormula",
+                ];
+                for ign in ignore_list {
+                    if record_header.record_type.starts_with(ign) {
+                        // continue 'header_loop;
+                        return;
                     }
                 }
-                inner_thread_count
-            });
-            handles.push(handle);
-        }
 
-        for thread in handles {
-            for _ in 0..thread.join().unwrap() {
-                let (record_name, entry) = rx.recv().unwrap();
-                match entry {
-                    EntryType::Affix(data) => {
-                        affixes.insert(record_name.clone(), data);
-                    }
-                    EntryType::Item(data) => {
-                        items.insert(record_name.clone(), data);
+                //println!("{}", record_header.record_type);
+            }
+            if record_name.starts_with("records/items/")
+                || record_name.starts_with("records/creatures/npcs/npcgear/")
+                || record_name.starts_with("records/storyelements/")
+                || record_name.starts_with("records/endlessdungeon/")
+            {
+                //println!("record type {}", record_header.record_type);
+                let ignore_list = [
+                    "records/items/enemygear/",
+                    "records/items/transmutes/",
+                    // Searching for unique affixes. Maybe later.
+                    "records/items/lootaffixes/prefixunique/",
+                    "records/items/lootaffixes/suffixunique/",
+                    "records/items/lootaffixes/completionrelics",
+                    "records/items/lootaffixes/completion",
+                    "records/items/lootaffixes/crafting",
+                ];
+                for ign in ignore_list {
+                    if record_name.starts_with(ign) {
+                        // continue 'header_loop;
+                        return;
                     }
                 }
+
+                // inner_thread_count += 1;
+                let mut byte_reader = byte_reader.clone();
+                // s.spawn(move || {
+                let data = decompress(&mut byte_reader, record_header);
+                let is_affix = record_header.record_type == "LootRandomizer";
+
+                if is_affix {
+                    let affix = parse_affix(record_header, data, strings);
+                    affixes.insert(record_name, affix);
+                    // tx.send((record_name, EntryType::Affix(affix))).unwrap();
+                } else {
+                    let item = parse_item(record_header, data, &record_name, strings);
+                    items.insert(record_name, item);
+                    // tx.send((record_name, EntryType::Item(item))).unwrap();
+                }
+                // });
             }
         }
     });
+    // inner_thread_count
+    // });
+    // handles.push(handle);
+    // }
+
+    // for thread in handles {
+    //     for _ in 0..thread.join().unwrap() {
+    //         let (record_name, entry) = rx.recv().unwrap();
+    //         match entry {
+    //             EntryType::Affix(data) => {
+    //                 affixes.insert(record_name.clone(), data);
+    //             }
+    //             EntryType::Item(data) => {
+    //                 items.insert(record_name.clone(), data);
+    //             }
+    //         }
+    //     }
+    // }
+    // });
     Ok((items, affixes))
 }
 
@@ -241,21 +240,18 @@ fn parse_item(
     strings: &[&str],
     // is_affix: bool,
 ) -> ItemData {
-    let mut reader = ByteReader::from_vec(data);
+    let mut reader = ByteReader::from(data);
 
     let mut tag_name: Option<String> = None;
     let mut level_req = None;
     let mut rarity: Option<String> = None;
 
-    let mut i = 0;
-    'outer: while i < record_header.size_decompressed / 4 {
+    'outer: while reader.index < record_header.size_decompressed as usize {
         let entry_header = EntryHeader::read(&mut reader);
-        i += 2 + entry_header.entry_count as u32;
         let entry_key = &strings[entry_header.string_index];
 
         match entry_header.entry_type {
             1 => {
-                // Ignore this, just advance index
                 reader.index += size_of::<f32>() * entry_header.entry_count as usize;
             }
             2 => {
@@ -304,15 +300,14 @@ fn parse_item(
 }
 
 fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, strings: &[&str]) -> AffixData {
-    let mut reader = ByteReader::from_vec(data);
+    let mut reader = ByteReader::from(data);
+
     let mut tag_name: Option<String> = None; // used by most items and affixes
     let mut rarity: Option<String> = None;
     let mut level_req: Option<u32> = None;
 
-    let mut i = 0;
-    'outer: while i < record_header.size_decompressed / 4 {
+    while reader.index < (record_header.size_decompressed as usize) {
         let entry_header = EntryHeader::read(&mut reader);
-        i += 2 + entry_header.entry_count as u32;
         let entry_key = &strings[entry_header.string_index];
         match entry_header.entry_type {
             1 => {
@@ -326,14 +321,14 @@ fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, strings: &[&str])
                         tag_name = Some(strings[int as usize].to_string());
 
                         if rarity.is_some() && level_req.is_some() {
-                            break 'outer;
+                            break;
                         }
                     }
                     "itemClassification" => {
                         rarity = Some(strings[int as usize].to_string());
 
                         if tag_name.is_some() && level_req.is_some() {
-                            break 'outer;
+                            break;
                         }
                     }
                     _str => {}
@@ -345,7 +340,7 @@ fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, strings: &[&str])
                     level_req = Some(int);
 
                     if tag_name.is_some() && rarity.is_some() {
-                        break 'outer;
+                        break;
                     }
                 }
                 reader.index += size_of::<u32>() * (entry_header.entry_count as usize - 1);

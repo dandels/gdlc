@@ -24,7 +24,7 @@ impl Decrypt {
         let mut file = File::open(path)?;
         let mut bytes = Vec::new();
         let _len = file.read_to_end(&mut bytes)?;
-        let mut reader = ByteReader::from_vec(bytes);
+        let mut reader = ByteReader::from(bytes);
         let key = reader.read_u32() ^ 0x55555555;
         let mut k = key;
         let mut table = [0; 256];

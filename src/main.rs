@@ -21,7 +21,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
 
 use crate::arz_parser::Affixes;
 use crate::arz_parser::Items;
@@ -60,8 +59,6 @@ fn main() -> Result<(), Error> {
         return Ok(());
     }
 
-    let now = Instant::now();
-
     let lookup: OnceLock<ItemLookup> = OnceLock::new();
 
     thread::scope(|s| {
@@ -78,10 +75,8 @@ fn main() -> Result<(), Error> {
                 msg_count += 1;
                 let db_tx = db_tx.clone();
                 s.spawn(move || {
-                    let now = Instant::now();
                     let (items, affixes) = arz_parser::read_archive(&path).unwrap();
                     db_tx.send(DbData::GameData((items, affixes))).unwrap();
-                    println!("game data took {:.2?}", now.elapsed());
                 });
             }
 
@@ -90,7 +85,6 @@ fn main() -> Result<(), Error> {
                 let db_tx = db_tx.clone();
                 // localization_receivers.push(loc_rx);
                 s.spawn(move || {
-                    let now = Instant::now();
                     let localization_data = arc_parser::read_archive(&path).unwrap();
                     db_tx.send(DbData::LocalizationData(localization_data)).unwrap();
                 });
@@ -121,9 +115,6 @@ fn main() -> Result<(), Error> {
                     tag_names,
                 })
                 .unwrap();
-            println!("db done");
-
-            println!("data mapping took {:.2?}", now.elapsed());
         });
 
         s.spawn(move || {
