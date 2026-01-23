@@ -224,6 +224,10 @@ fn parse_item(
                 match *entry_key {
                     // relics use "description" instead of "itemNameTag"
                     "itemNameTag" | "description" => {
+                        // A few items have both a nametag and description
+                        // if tag_name.is_some() {
+                        //     println!("{record_name} has both");
+                        // }
                         tag_name = Some(strings[int as usize].to_string());
 
                         // Stop reading data once we found what we came for.

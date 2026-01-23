@@ -21,13 +21,17 @@ use std::io::Error;
 use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
+use std::process::exit;
 use std::sync::mpsc;
 use std::thread;
 
 use crate::arz_parser::Affixes;
 use crate::arz_parser::Items;
 use crate::inventory_item::InventoryItem;
+use crate::item_search::CompleteItem;
 use crate::item_search::LocalizationStrings;
+
+const PROMPT: &str = "\nEnter search term: ";
 
 fn main() -> Result<(), Error> {
     let config = Config::new();
@@ -64,7 +68,7 @@ fn main() -> Result<(), Error> {
 
     let mut search_term = {
         if should_loop {
-            String::new()
+            args.next().unwrap_or_default()
         } else {
             first_arg.unwrap_or_default()
         }
@@ -73,7 +77,7 @@ fn main() -> Result<(), Error> {
         search_term.push_str(&(" ".to_owned() + &arg.to_lowercase()));
     }
     let initial_search_term = search_term.clone();
-    let (mut lookup, owned_items) = thread::scope(|s| {
+    let (lookup, owned_items) = thread::scope(|s| {
         let config = &config;
         let lookup_thread = s.spawn(move || {
             enum DbData {
@@ -180,9 +184,18 @@ fn main() -> Result<(), Error> {
     });
 
     if should_loop {
-        const PROMPT: &str = "\nEnter search term: ";
+        let mut item_cache = Vec::from_par_iter(
+            owned_items.into_par_iter().filter(|(_src, items)| !items.is_empty()).map(|(source, items)| {
+                let mut matched: Vec<CompleteItem> =
+                    items.par_iter().filter_map(|inventory_item| lookup.lookup_item(inventory_item)).collect();
+                matched.sort_by(|a, b| a.name_searchable.cmp(&b.name_searchable));
+                (source, matched)
+            }),
+        );
+        item_cache.sort_by(|(src_a, _), (src_b, _)| src_a.cmp(src_b));
         if !search_term.is_empty() {
-            do_search(&owned_items, &lookup);
+            println!("search term is {}, len {}", &search_term, search_term.len());
+            search_cached(&item_cache, &search_term);
             print!("{PROMPT}");
         } else {
             // Don't print the newline the first time
@@ -190,34 +203,42 @@ fn main() -> Result<(), Error> {
         }
 
         if stdout().flush().is_err() {
-            return Ok(());
+            exit(0);
         }
 
-        let lines = stdin().lines();
-        for line in lines {
-            match line {
-                Ok(mut line) => {
-                    line.pop(); // remove \n from line
-                    lookup.search_term = line;
-                    do_search(&owned_items, &lookup);
-                    print!("{PROMPT}");
-                    if stdout().flush().is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
+        do_search_loop(item_cache);
     } else {
-        do_search(&owned_items, &lookup);
+        lookup.search_uncached(&owned_items);
     }
 
     Ok(())
 }
 
-fn do_search(owned_items: &Vec<(String, Vec<InventoryItem>)>, lookup: &ItemLookup) {
-    owned_items.par_iter().for_each(|(item_source, items)| {
-        lookup.check_items(items, item_source);
+fn do_search_loop(item_cache: Vec<(String, Vec<CompleteItem>)>) -> ! {
+    let lines = stdin().lines();
+    for line in lines {
+        match line {
+            Ok(line) => {
+                search_cached(&item_cache, &line);
+                print!("{PROMPT}");
+                if stdout().flush().is_err() {
+                    exit(0);
+                }
+            }
+            Err(_) => exit(0),
+        }
+    }
+    exit(0)
+}
+
+fn search_cached(map: &[(String, Vec<CompleteItem>)], search_term: &str) {
+    // map.par_iter().for_each(|(item_source, items)| {
+    map.iter().for_each(|(item_source, items)| {
+        items.iter().for_each(|ci| {
+            if ci.name_searchable.contains(search_term) {
+                println!("{item_source}: {}", ci.name_printable);
+            }
+        });
     });
 }
 

@@ -2,7 +2,6 @@ use crate::arz_parser::{AffixData, ItemData};
 use crate::inventory_item::InventoryItem;
 
 use std::collections::HashMap;
-use std::{fmt, fmt::Display};
 
 use colored::{ColoredString, Colorize};
 use rayon::prelude::*;
@@ -23,15 +22,8 @@ pub struct ItemLookup {
 }
 
 pub struct CompleteItem {
-    name: String,
-    item_rarity: Rarity,
-    prefix: Option<String>,
-    prefix_rarity: Rarity,
-    suffix: Option<String>,
-    suffix_rarity: Rarity,
-    // level_req: Option<u32>,
-    level_req: u32,
-    quantity: u32,
+    pub name_printable: String,
+    pub name_searchable: String,
 }
 
 enum Rarity {
@@ -74,58 +66,65 @@ fn color_affix_by_rarity(string: String, rarity: &Rarity) -> ColoredString {
     }
 }
 
-impl CompleteItem {
-    fn fmt_searchable_item_name(&self) -> String {
-        format!(
-            "{} {} {}", // correct amount of whitespace is not important for search
-            self.prefix.as_ref().unwrap_or(&"".into()),
-            &self.name,
-            self.suffix.as_ref().unwrap_or(&"".into())
-        )
-    }
-}
-
-impl Display for CompleteItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let quantity = {
-            if self.quantity > 1 {
-                format!("(x{}) ", self.quantity)
-            } else {
-                "".to_string()
-            }
-        };
-        let lvl_req = {
-            let req = self.level_req;
-            format!("[lvl {req}]")
-        };
-
-        let name_colored = color_item_by_rarity(self.name.clone(), &self.item_rarity);
-        let suffix_colored = color_affix_by_rarity(self.suffix.clone().unwrap_or("".to_string()), &self.suffix_rarity);
-        let prefix_colored = color_affix_by_rarity(self.prefix.clone().unwrap_or("".to_string()), &self.prefix_rarity);
-        if self.prefix.is_none() {
-            if self.suffix.is_none() {
-                write!(f, "{lvl_req} {quantity}{name_colored}")
-            } else {
-                write!(f, "{lvl_req} {quantity}{name_colored} {suffix_colored}")
-            }
-        } else if self.suffix.is_none() {
-            write!(f, "{lvl_req} {prefix_colored} {name_colored}")
+#[allow(clippy::too_many_arguments)]
+fn fmt_printable(
+    base_name: String,
+    prefix: Option<String>,
+    suffix: Option<String>,
+    quantity: u32,
+    level_req: u32,
+    item_rarity: Rarity,
+    prefix_rarity: &Rarity,
+    suffix_rarity: &Rarity,
+) -> String {
+    let quantity_str = {
+        if quantity > 1 {
+            format!("(x{}) ", quantity)
         } else {
-            write!(f, "{lvl_req} {prefix_colored} {name_colored} {suffix_colored}")
+            "".to_string()
         }
+    };
+    let lvl_req_str = {
+        let req = level_req;
+        format!("[lvl {req}]")
+    };
+
+    let name_colored = color_item_by_rarity(base_name, &item_rarity);
+    let suffix_colored = color_affix_by_rarity(suffix.clone().unwrap_or("".to_string()), suffix_rarity);
+    let prefix_colored = color_affix_by_rarity(prefix.clone().unwrap_or("".to_string()), prefix_rarity);
+    if prefix.is_none() {
+        if suffix.is_none() {
+            format!("{lvl_req_str} {quantity_str}{name_colored}")
+        } else {
+            format!("{lvl_req_str} {quantity_str}{name_colored} {suffix_colored}")
+        }
+    } else if suffix.is_none() {
+        format!("{lvl_req_str} {prefix_colored} {name_colored}")
+    } else {
+        format!("{lvl_req_str} {prefix_colored} {name_colored} {suffix_colored}")
     }
 }
 
 impl ItemLookup {
     pub fn lookup_item(&self, inventory_item: &InventoryItem) -> Option<CompleteItem> {
+        #[allow(clippy::manual_map)]
+        #[allow(clippy::needless_match)]
+        let item_data_opt = match self.tag_names.items.get(&inventory_item.base_name) {
+            Some(id) => Some(id),
+            None => {
+                // TODO handle records caught by this
+                // println!("nothing found for {:?}", inventory_item);
+                None
+            }
+        };
+
         let ItemData {
             record_name: _record_name,
             tag_name,
             rarity,
             level_req,
             localized_item_name,
-        } = self.tag_names.items.get(&inventory_item.base_name)?; // TODO handle records caught by this
-
+        } = item_data_opt?;
         let item_name: &String = match localized_item_name.get() {
             Some(name) => Some(name),
             None => {
@@ -142,7 +141,7 @@ impl ItemLookup {
         // println!("{item_name} has {} tiers", ilvls.len());
         // }
 
-        // Affixes can increase item lvl
+        // Increase item lvl if affix req is higher than base item
         let mut req_incl_affix: u32 = *level_req;
 
         let mut prefix: Option<String> = None;
@@ -200,31 +199,45 @@ impl ItemLookup {
             }
         };
 
-        let ci = CompleteItem {
-            name: item_name,
-            item_rarity,
+        let name_searchable = format!(
+            "{} {} {}", // correct amount of whitespace is not important for search
+            prefix.as_ref().unwrap_or(&"".into()),
+            &item_name,
+            suffix.as_ref().unwrap_or(&"".into())
+        )
+        .to_lowercase();
+
+        let name_printable = fmt_printable(
+            item_name,
             prefix,
-            prefix_rarity,
             suffix,
-            suffix_rarity,
-            level_req: req_incl_affix,
             quantity,
+            req_incl_affix,
+            item_rarity,
+            &prefix_rarity,
+            &suffix_rarity,
+        );
+
+        let ci = CompleteItem {
+            name_printable,
+            name_searchable,
         };
         Some(ci)
     }
 
-    pub fn check_items(&self, items: &[InventoryItem], item_source: &str) {
-        items.par_iter().for_each(|inventory_item| {
-            if let Some(ci) = self.lookup_item(inventory_item) {
-                let item_name = ci.fmt_searchable_item_name();
-                if item_name.to_lowercase().contains(&self.search_term) {
-                    // Most of print logic is handled inside CompleteItem
-                    println!("{item_source}: {ci}");
+    pub fn search_uncached(&self, owned_items: &Vec<(String, Vec<InventoryItem>)>) {
+        owned_items.par_iter().for_each(|(item_source, items)| {
+            items.par_iter().for_each(|inventory_item| {
+                if let Some(ci) = self.lookup_item(inventory_item) {
+                    if ci.name_searchable.contains(&self.search_term) {
+                        println!("{item_source}: {}", ci.name_printable);
+                    }
+                // There are some items with blank fields that might be unused assets. Otherwise log an error.
+                // TODO filter them out earlier?
+                } else if !inventory_item.base_name.is_empty() {
+                    println!("No tag found for {}, ", inventory_item.base_name);
                 }
-            // There are some items with blank fields that might be unused assets. Otherwise log an error.
-            } else if !inventory_item.base_name.is_empty() {
-                println!("No tag found for {}, ", inventory_item.base_name);
-            }
+            });
         });
     }
 }
