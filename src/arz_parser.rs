@@ -184,7 +184,7 @@ pub struct AffixData {
     pub rarity: String,
     // pub level_req: Option<u32>,
     pub level_req: Option<u32>,
-    pub name: OnceLock<String>, // The localized name of the affix is filled in later
+    pub localized_affix_name: OnceLock<String>, // The localized name of the affix is filled in later
 }
 
 #[derive(Debug)]
@@ -193,7 +193,7 @@ pub struct ItemData {
     pub tag_name: String,
     pub rarity: String,
     pub level_req: u32,
-    pub name: OnceLock<String>, // The localized name of the item is filled in later
+    pub localized_item_name: OnceLock<String>, // The localized name of the item is filled in later
 }
 
 fn parse_item(
@@ -258,7 +258,7 @@ fn parse_item(
         tag_name: tag_name.unwrap_or_default(),
         rarity: rarity.unwrap_or_default(),
         level_req: level_req.unwrap_or_default(),
-        name: Default::default(), // Initialized later
+        localized_item_name: Default::default(), // Initialized later
     }
 }
 
@@ -299,7 +299,8 @@ fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, strings: &[&str])
             }
             _num => {
                 let int = reader.read_u32();
-                if *entry_key == "itemLevel" {
+                if *entry_key == "levelRequirement" {
+                    // if *entry_key == "itemLevel" {
                     level_req = Some(int);
 
                     if tag_name.is_some() && rarity.is_some() {
@@ -315,7 +316,7 @@ fn parse_affix(record_header: &ArzRecordHeader, data: Vec<u8>, strings: &[&str])
         tag_name,
         rarity: rarity.unwrap_or_default(),
         level_req,
-        name: Default::default(), // Initialized later
+        localized_affix_name: Default::default(), // Initialized later
     }
 }
 

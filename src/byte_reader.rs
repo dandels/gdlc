@@ -68,6 +68,7 @@ impl ByteReader {
         ret
     }
 
+    #[allow(dead_code)]
     pub fn read_f32(&mut self) -> f32 {
         let new_index = self.index + 4;
         let ret = f32::from_ne_bytes(<[u8; 4]>::try_from(&self.bytes[self.index..new_index]).unwrap());

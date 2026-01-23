@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::{fmt, fmt::Display};
 
 use colored::{ColoredString, Colorize};
+use rayon::prelude::*;
 
 pub type LocalizationStrings = HashMap<String, String>;
 
@@ -94,13 +95,8 @@ impl Display for CompleteItem {
             }
         };
         let lvl_req = {
-            // if let Some(req) = self.level_req {
             let req = self.level_req;
             format!("[lvl {req}]")
-            // }
-            // else {
-            //     "".to_string()
-            // }
         };
 
         let name_colored = color_item_by_rarity(self.name.clone(), &self.item_rarity);
@@ -127,52 +123,66 @@ impl ItemLookup {
             tag_name,
             rarity,
             level_req,
-            name,
-        } = self.tag_names.items.get(&inventory_item.base_name)?;
-        // if let Some((EntryType::Item(_record_name, tag_name, item_rarity, level_req), ilvls)) =
-        //     self.tag_names.items.get(&inventory_item.base_name)
-        // {
-        let item_name: &String = match name.get() {
+            localized_item_name,
+        } = self.tag_names.items.get(&inventory_item.base_name)?; // TODO handle records caught by this
+
+        let item_name: &String = match localized_item_name.get() {
             Some(name) => Some(name),
-            None => self.localization_data.get(tag_name),
+            None => {
+                let ld = self.localization_data.get(tag_name);
+                if ld.is_none() {
+                    println!("No localization data found for {tag_name}");
+                }
+                ld
+            }
         }?;
-        // Uncomment to get record name and tag name of an item that the player has
-        //if item_name == "Baldir's Mantle" {
-        //    //println!("mantle is {record_name}, {tag_name}");
-        //    println!("{:?}", inventory_item);
-        //}
+
         // TODO fix this logic, hashmap needs to count tagnames and not record names
         // if ilvls.len() > 1 {
         // println!("{item_name} has {} tiers", ilvls.len());
         // }
+
+        // Affixes can increase item lvl
+        let mut req_incl_affix: u32 = *level_req;
 
         let mut prefix: Option<String> = None;
         let mut prefix_rarity = Rarity::CommonOrUnknown;
         if !inventory_item.prefix_name.is_empty()
             && let Some(prefix_info) = self.tag_names.affixes.get(&inventory_item.prefix_name)
         {
+            if let Some(prefix_req) = prefix_info.level_req
+                && prefix_req > req_incl_affix
+            {
+                req_incl_affix = prefix_req;
+            }
             prefix_rarity = Rarity::from(&prefix_info.rarity);
-            if let Some(prefix_name) = prefix_info.name.get() {
+            if let Some(prefix_name) = prefix_info.localized_affix_name.get() {
                 prefix = Some(prefix_name.clone());
             } else if let Some(tag_name) = &prefix_info.tag_name
                 && let Some(name) = self.localization_data.get(tag_name)
             {
-                let _ = prefix_info.name.set(name.clone());
+                let _ = prefix_info.localized_affix_name.set(name.clone());
                 prefix = Some(name.clone());
             }
         }
+
         let mut suffix: Option<String> = None;
         let mut suffix_rarity = Rarity::CommonOrUnknown;
         if !inventory_item.suffix_name.is_empty()
             && let Some(suffix_info) = self.tag_names.affixes.get(&inventory_item.suffix_name)
         {
+            if let Some(suffix_req) = suffix_info.level_req
+                && suffix_req > req_incl_affix
+            {
+                req_incl_affix = suffix_req;
+            }
             suffix_rarity = Rarity::from(&suffix_info.rarity);
-            if let Some(suffix_name) = suffix_info.name.get() {
+            if let Some(suffix_name) = suffix_info.localized_affix_name.get() {
                 suffix = Some(suffix_name.clone());
             } else if let Some(tag_name) = &suffix_info.tag_name
                 && let Some(name) = self.localization_data.get(tag_name)
             {
-                let _ = suffix_info.name.set(name.clone());
+                let _ = suffix_info.localized_affix_name.set(name.clone());
                 suffix = Some(name.clone());
             }
         }
@@ -190,29 +200,31 @@ impl ItemLookup {
             }
         };
 
-        Some(CompleteItem {
+        let ci = CompleteItem {
             name: item_name,
             item_rarity,
             prefix,
             prefix_rarity,
             suffix,
             suffix_rarity,
-            // TODO FIXME
-            level_req: *level_req,
+            level_req: req_incl_affix,
             quantity,
-        })
+        };
+        Some(ci)
     }
 
-    pub fn check_item(&self, inventory_item: &InventoryItem, item_source: &str) {
-        if let Some(ci) = self.lookup_item(inventory_item) {
-            let item_name = ci.fmt_searchable_item_name();
-            if item_name.to_lowercase().contains(&self.search_term) {
-                // Most of print logic is handled inside CompleteItem
-                println!("{item_source}: {ci}");
+    pub fn check_items(&self, items: &[InventoryItem], item_source: &str) {
+        items.par_iter().for_each(|inventory_item| {
+            if let Some(ci) = self.lookup_item(inventory_item) {
+                let item_name = ci.fmt_searchable_item_name();
+                if item_name.to_lowercase().contains(&self.search_term) {
+                    // Most of print logic is handled inside CompleteItem
+                    println!("{item_source}: {ci}");
+                }
+            // There are some items with blank fields that might be unused assets. Otherwise log an error.
+            } else if !inventory_item.base_name.is_empty() {
+                println!("No tag found for {}, ", inventory_item.base_name);
             }
-        // There are some items with blank fields that might be unused assets. Otherwise log an error.
-        } else if !inventory_item.base_name.is_empty() {
-            // println!("No tag found for {}", inventory_item.base_name);
-        }
+        });
     }
 }

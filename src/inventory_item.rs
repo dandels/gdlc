@@ -1,6 +1,6 @@
 use super::decrypt::Decrypt;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct InventoryItem {
     pub base_name: String,
@@ -24,7 +24,7 @@ impl InventoryItem {
         Ok(Self {
             base_name: decrypter.read_str()?,
             prefix_name: decrypter.read_str()?,
-            suffix_name:decrypter.read_str()?,
+            suffix_name: decrypter.read_str()?,
             modifier_name: decrypter.read_str()?,
             transmute_name: decrypter.read_str()?,
             seed: decrypter.read_int(),

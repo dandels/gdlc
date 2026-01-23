@@ -7,8 +7,6 @@ use super::decrypt::Decrypt;
 use std::io::Error;
 use std::path::PathBuf;
 
-const EQUIPMENT_SLOTS: usize = 12;
-
 pub struct PlayerStash {
     pub tabs: Vec<Vec<InventoryItem>>,
 }
@@ -27,14 +25,17 @@ impl PlayerStash {
     }
 }
 
+const EQUIPMENT_SLOTS: usize = 12;
+const WEAPON_SLOTS: usize = 2;
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Inventory {
     num_bags: u32,
     pub bags: Vec<Bag>,
-    pub equipment: [InventoryEquipment; EQUIPMENT_SLOTS],
-    pub weapon_set_1: [InventoryEquipment; 2],
-    pub weapon_set_2: [InventoryEquipment; 2],
+    pub equipment: [InventoryItem; EQUIPMENT_SLOTS],
+    pub weapon_set_1: [InventoryItem; WEAPON_SLOTS],
+    pub weapon_set_2: [InventoryItem; WEAPON_SLOTS],
     focused: u32,
     selected: u32,
     flag: u8,
@@ -56,6 +57,12 @@ impl InventoryEquipment {
             item: InventoryItem::read(decrypt).unwrap(),
             attached: decrypt.read_byte(),
         }
+    }
+}
+
+impl AsRef<InventoryItem> for InventoryEquipment {
+    fn as_ref(&self) -> &InventoryItem {
+        &self.item
     }
 }
 
@@ -93,7 +100,7 @@ impl Inventory {
         let flag = decrypt.read_byte();
         // TODO try cast to a proper boolean and test if that makes a difference
         if flag == 0 {
-            println!("This byte was supposed to be 0. The file format might be wrong.");
+            println!("This byte was supposed to be 0. The file format might be wrong, leading to unexpected results.");
         }
         let num_bags = decrypt.read_int();
         let focused = decrypt.read_int();
@@ -103,11 +110,11 @@ impl Inventory {
             bags.push(Bag::read(decrypt));
         }
         let use_alternate = decrypt.read_byte();
-        let equipment = std::array::from_fn(|_| InventoryEquipment::read(decrypt));
+        let equipment = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
         let alternate_1 = decrypt.read_byte();
-        let weapon_set_1 = std::array::from_fn(|_| InventoryEquipment::read(decrypt));
+        let weapon_set_1 = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
         let alternate_2 = decrypt.read_byte();
-        let weapon_set_2 = std::array::from_fn(|_| InventoryEquipment::read(decrypt));
+        let weapon_set_2 = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
 
         let ret = Self {
             num_bags,
@@ -170,11 +177,6 @@ impl CharacterInfo {
         let (start, block) = decrypt.read_block_start();
         assert_eq!(start, 1);
         assert_eq!(decrypt.read_int(), 5); // version == 5
-        //let texture = decrypt.read_str();
-        //let _skipped_ints = size_of::<u32>() * 41;
-        //for _ in 0..size_of::<CharacterInfo>() {
-        //    decrypt.read_byte();
-        //}
 
         let ret = Self {
             is_in_main_quest: decrypt.read_byte(),
