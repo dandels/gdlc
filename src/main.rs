@@ -147,7 +147,7 @@ fn main() -> Result<(), Error> {
                     .tabs
                     .into_iter()
                     .enumerate()
-                    .map(|(i, tabitems)| (format!("Softcore stash tab {}", i + 1), tabitems))
+                    .map(|(i, tabitems)| (format!("Stash (softcore) tab {}", i + 1), tabitems))
                     .collect();
                 Some(vec)
             } else {
@@ -162,7 +162,7 @@ fn main() -> Result<(), Error> {
                     .tabs
                     .into_iter()
                     .enumerate()
-                    .map(|(i, tabitems)| (format!("Hardcore stash tab {}", i + 1), tabitems))
+                    .map(|(i, tabitems)| (format!("Stash (hardcore) tab {}", i + 1), tabitems))
                     .collect();
                 Some(vec)
             } else {
@@ -246,9 +246,9 @@ fn search_pairs_for_character(items: CharacterItems) -> Vec<(String, Vec<Invento
     let CharacterItems { name, inventory, stash } = items;
 
     let mut searches: Vec<(String, Vec<InventoryItem>)> = vec![
-        (format!("Equipped by {}", &name), inventory.equipment.to_vec()),
-        (format!("Equipped by {}, weapon set 1", &name), inventory.weapon_set_1.to_vec()),
-        (format!("Equipped by {}, weapon set 2", &name), inventory.weapon_set_2.to_vec()),
+        (format!("{} (equipped)", &name), inventory.equipment.to_vec()),
+        (format!("{} (weapon set 1)", &name), inventory.weapon_set_1.to_vec()),
+        (format!("{} (weapon set 2)", &name), inventory.weapon_set_2.to_vec()),
     ];
 
     for (i, bag) in inventory.bags.into_iter().enumerate() {
