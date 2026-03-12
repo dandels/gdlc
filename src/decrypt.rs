@@ -3,7 +3,7 @@ use crate::byte_reader::ByteReader;
 use std::fs::File;
 use std::io::Error;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::Path;
 
 const PRIME: u32 = 39916801;
 
@@ -20,7 +20,7 @@ pub struct Decrypt {
 }
 
 impl Decrypt {
-    pub fn new(path: &PathBuf) -> Result<Self, Error> {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut file = File::open(path)?;
         let mut bytes = Vec::new();
         let _len = file.read_to_end(&mut bytes)?;
@@ -79,6 +79,7 @@ impl Decrypt {
             }
             // TODO error handling for invalid strings
             let ret_str = String::from_utf8(str_buf).unwrap();
+            // println!("read_str {ret_str}");
             return Ok(ret_str);
         }
         Ok("".to_string())
@@ -123,16 +124,22 @@ impl Decrypt {
         (block_start, Block { len, end })
     }
 
-    pub fn read_block_end(&mut self, block: &Block) -> Result<bool, ()> {
+    pub fn read_block_end(&mut self, block: &Block) {
         let index: u32 = self.byte_reader.index.try_into().unwrap();
         if block.end != index {
-            println!("Stream position is {index} but block end is {}. Delta: {}", block.end, index.abs_diff(block.end));
-            Err(())
-        } else if self.next_int() != 0 {
-            println!("Expected end of block character 0.");
-            Ok(false)
-        } else {
-            Ok(true)
+            let diff = index.abs_diff(block.end);
+            // println!(
+            // "Stream position is {index} but block end is {}. Delta: {}",
+            // block.end, diff
+            // );
+
+            // Backwards compatible way to deal with some data added in 1.3
+            for _ in 0..diff {
+                let _byte = self.read_byte();
+            }
+        }
+        if self.next_int() != 0 {
+            panic!("Expected end of block character 0.");
         }
     }
 }

@@ -83,7 +83,7 @@ impl ArcRecordPartMetadata {
 }
 
 pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
-    let mut byte_vec = ByteReader::from_file(path)?;
+    let mut byte_vec = ByteReader::from_path(path)?;
     let archive_header = ArcArchiveHeader::new(&mut byte_vec);
     assert!(archive_header.version == 3, "expected header version 3, is {}", archive_header.version);
 

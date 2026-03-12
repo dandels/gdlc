@@ -2,7 +2,7 @@ use std::ffi::CStr;
 use std::fs::File;
 use std::io::Error;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 // Allow cloning the reader to have multiple views into the same underlying data
@@ -22,7 +22,7 @@ pub struct ByteReader {
 // }
 
 impl ByteReader {
-    pub fn from_file(path: &PathBuf) -> Result<Self, Error> {
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut file = File::open(path)?;
         let mut bytes = Vec::new();
         let _len = file.read_to_end(&mut bytes)?;

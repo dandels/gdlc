@@ -1,3 +1,5 @@
+use crate::VersionNumber;
+
 use super::decrypt::Decrypt;
 
 #[derive(Clone, Debug)]
@@ -20,8 +22,8 @@ pub struct InventoryItem {
 }
 
 impl InventoryItem {
-    pub fn read(decrypter: &mut Decrypt) -> Result<Self, std::io::Error> {
-        Ok(Self {
+    pub fn read(decrypter: &mut Decrypt, version: &VersionNumber) -> Result<Self, std::io::Error> {
+        let ret = Self {
             base_name: decrypter.read_str()?,
             prefix_name: decrypter.read_str()?,
             suffix_name: decrypter.read_str()?,
@@ -36,6 +38,17 @@ impl InventoryItem {
             augment_seed: decrypter.read_int(),
             materia_combines: decrypter.read_int(),
             stack_count: decrypter.read_int(),
-        })
+        };
+        // New values added in 1.3
+        match *version {
+            // as of 1.3, expectation is stash == 10 or inventory == 8
+            VersionNumber::Stash(num) | VersionNumber::Inventory(num) if num >= 8 => {
+                let _val1 = decrypter.read_int();
+                let _val2 = decrypter.read_int();
+                let _val3 = decrypter.read_int();
+            }
+            _ => {}
+        }
+        Ok(ret)
     }
 }

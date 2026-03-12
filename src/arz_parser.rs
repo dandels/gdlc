@@ -79,7 +79,7 @@ pub type Items = HashMap<String, ItemData>;
 pub type Affixes = HashMap<String, AffixData>;
 
 pub fn read_archive(path: &PathBuf) -> Result<(Items, Affixes), Error> {
-    let mut byte_reader = ByteReader::from_file(path)?;
+    let mut byte_reader = ByteReader::from_path(path)?;
 
     let archive_header = ArzArchiveHeader::new(&mut byte_reader);
 

@@ -31,6 +31,11 @@ use crate::inventory_item::InventoryItem;
 use crate::item_search::CompleteItem;
 use crate::item_search::LocalizationStrings;
 
+pub enum VersionNumber {
+    Stash(u32),
+    Inventory(u32),
+}
+
 const PROMPT: &str = "\nEnter search term: ";
 
 fn main() -> Result<(), Error> {
