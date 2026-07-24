@@ -13,13 +13,15 @@ pub struct PlayerStash {
 impl PlayerStash {
     fn read(decrypt: &mut Decrypt) -> Result<PlayerStash, Error> {
         let (start, block) = decrypt.read_block_start();
-        assert!(start == 4, "Expected player stash block to start with 0.");
-        assert!(decrypt.read_int() == 6, "Expected character stash version to be 6.");
+        assert!(start == 4, "Expected player stash block to start with 4, was {start}.");
+        let stash_version = decrypt.read_int();
+        assert!((6..=11).contains(&stash_version), "Expected player stash version to be between 6 and 11.");
         let num_tabs = decrypt.read_int();
         let mut tabs = Vec::with_capacity(num_tabs as usize);
         for _ in 0..num_tabs {
-            tabs.push(stash::read_stash_tab(decrypt)?);
+            tabs.push(stash::read_stash_tab(decrypt, stash_version)?);
         }
+
         decrypt.read_block_end(&block).unwrap();
         Ok(PlayerStash { tabs })
     }
@@ -52,9 +54,9 @@ pub struct InventoryEquipment {
 }
 
 impl InventoryEquipment {
-    fn read(decrypt: &mut Decrypt) -> Self {
+    fn read(decrypt: &mut Decrypt, version: u32) -> Self {
         Self {
-            item: InventoryItem::read(decrypt).unwrap(),
+            item: InventoryItem::read(decrypt, version),
             attached: decrypt.read_byte(),
         }
     }
@@ -73,16 +75,17 @@ pub struct Bag {
 }
 
 impl Bag {
-    fn read(decrypt: &mut Decrypt) -> Self {
+    fn read(decrypt: &mut Decrypt, version: u32) -> Self {
         let (start, block) = decrypt.read_block_start();
-        assert!(start == 0, "expected non-zero start of bag block");
+        assert_eq!(start, 0, "Expected start of bag block to be zero");
         let ret = Self {
             _some_bool: decrypt.read_byte(),
             items: {
                 let len = decrypt.read_int();
                 let mut ret = Vec::with_capacity(len as usize);
                 for _ in 0..len {
-                    ret.push(StashItem::read(decrypt).unwrap().item);
+                    let item = StashItem::read(decrypt, version).item;
+                    ret.push(item);
                 }
                 ret
             },
@@ -96,25 +99,26 @@ impl Inventory {
     fn read(decrypt: &mut Decrypt) -> Self {
         let (start, block) = decrypt.read_block_start();
         assert_eq!(start, 3);
-        assert_eq!(decrypt.read_int(), 4);
+        let version = decrypt.read_int();
+        assert!((4..=11).contains(&version), "Expected inventory version to be between 4 and 11.");
         let flag = decrypt.read_byte();
-        // TODO try cast to a proper boolean and test if that makes a difference
         if flag == 0 {
             println!("This byte was supposed to be 0. The file format might be wrong, leading to unexpected results.");
         }
+
         let num_bags = decrypt.read_int();
         let focused = decrypt.read_int();
         let selected = decrypt.read_int();
         let mut bags = Vec::with_capacity(num_bags as usize);
         for _ in 0..num_bags {
-            bags.push(Bag::read(decrypt));
+            bags.push(Bag::read(decrypt, version));
         }
         let use_alternate = decrypt.read_byte();
-        let equipment = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
+        let equipment = std::array::from_fn(|_| InventoryEquipment::read(decrypt, version)).map(|i| i.item);
         let alternate_1 = decrypt.read_byte();
-        let weapon_set_1 = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
+        let weapon_set_1 = std::array::from_fn(|_| InventoryEquipment::read(decrypt, version)).map(|i| i.item);
         let alternate_2 = decrypt.read_byte();
-        let weapon_set_2 = std::array::from_fn(|_| InventoryEquipment::read(decrypt)).map(|i| i.item);
+        let weapon_set_2 = std::array::from_fn(|_| InventoryEquipment::read(decrypt, version)).map(|i| i.item);
 
         let ret = Self {
             num_bags,
@@ -129,6 +133,7 @@ impl Inventory {
             alternate_1,
             alternate_2,
         };
+
         decrypt.read_block_end(&block).unwrap();
         ret
     }
@@ -159,7 +164,7 @@ struct CharacterInfo {
     weapon_swap_enabled: u8,
     texture: String,
     loot_filter_len: u32,
-    loot_filter: [u8; 39],
+    loot_filter: Vec<u8>,
 }
 
 fn skip_block_with_size_n(decrypt: &mut Decrypt, expected_start: u32, version: u32, size: usize) {
@@ -176,29 +181,43 @@ impl CharacterInfo {
     fn read(decrypt: &mut Decrypt) -> Self {
         let (start, block) = decrypt.read_block_start();
         assert_eq!(start, 1);
-        assert_eq!(decrypt.read_int(), 5); // version == 5
+        let version = decrypt.read_int();
+        assert_eq!(version, 5); // version == 5
+
+        let is_in_main_quest = decrypt.read_byte();
+        let has_been_in_game = decrypt.read_byte();
+        let difficulty = decrypt.read_byte();
+        let greatest_difficulty = decrypt.read_byte();
+        let money = decrypt.read_int();
+        let greatest_survival_difficulty = decrypt.read_byte();
+        let current_tribute = decrypt.read_int();
+        let compass_state = decrypt.read_byte();
+        let skill_window_show_help = decrypt.read_byte();
+        let weapon_swap_active = decrypt.read_byte();
+        let weapon_swap_enabled = decrypt.read_byte();
+        let texture = decrypt.read_str().unwrap();
+        let loot_filter_len = decrypt.read_int();
+
+        let mut loot_filter = Vec::with_capacity(loot_filter_len as usize);
+        for _ in 0..loot_filter_len {
+            loot_filter.push(decrypt.read_byte());
+        }
 
         let ret = Self {
-            is_in_main_quest: decrypt.read_byte(),
-            has_been_in_game: decrypt.read_byte(),
-            difficulty: decrypt.read_byte(),
-            greatest_difficulty: decrypt.read_byte(),
-            money: decrypt.read_int(),
-            greatest_survival_difficulty: decrypt.read_byte(),
-            current_tribute: decrypt.read_int(),
-            compass_state: decrypt.read_byte(),
-            skill_window_show_help: decrypt.read_byte(),
-            weapon_swap_active: decrypt.read_byte(),
-            weapon_swap_enabled: decrypt.read_byte(),
-            texture: decrypt.read_str().unwrap(),
-            loot_filter_len: decrypt.read_int(),
-            loot_filter: {
-                let mut buf = [0; 39];
-                for byte in buf.iter_mut() {
-                    *byte = decrypt.read_byte();
-                }
-                buf
-            },
+            is_in_main_quest,
+            has_been_in_game,
+            difficulty,
+            greatest_difficulty,
+            money,
+            greatest_survival_difficulty,
+            current_tribute,
+            compass_state,
+            skill_window_show_help,
+            weapon_swap_active,
+            weapon_swap_enabled,
+            texture,
+            loot_filter_len,
+            loot_filter,
         };
         decrypt.read_block_end(&block).unwrap();
         ret
@@ -231,15 +250,15 @@ impl CharacterItems {
         let header = PlayerHeader::read(&mut decrypt);
         let _byte = decrypt.read_byte();
         assert_eq!(decrypt.next_int(), 0); // end of block
-        assert_eq!(decrypt.read_int(), 8); // version
+        let version = decrypt.read_int();
+        assert_eq!(version, 8);
 
         let mut uid_buf: [u8; 16] = [0; 16];
         for byte in uid_buf.iter_mut() {
             *byte = decrypt.read_byte();
         }
         let _char_info = CharacterInfo::read(&mut decrypt);
-        //skip_character_bio(&mut decrypt);
-        skip_block_with_size_n(&mut decrypt, 2, 8, 44); // skip bio
+        skip_block_with_size_n(&mut decrypt, 2, 8, 44); // skip character bio
         let inventory = Inventory::read(&mut decrypt);
         let stash = PlayerStash::read(&mut decrypt)?;
 

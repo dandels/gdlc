@@ -202,7 +202,7 @@ impl ItemLookup {
         let name_searchable = format!(
             "{} {} {}", // correct amount of whitespace is not important for search
             prefix.as_ref().unwrap_or(&"".into()),
-            &item_name,
+            item_name,
             suffix.as_ref().unwrap_or(&"".into())
         )
         .to_lowercase();

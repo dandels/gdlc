@@ -12,15 +12,6 @@ pub struct ByteReader {
     pub index: usize,
 }
 
-// impl Clone for ByteReader {
-//     fn clone(&self) -> Self {
-//         Self {
-//             bytes: self.bytes.clone(),
-//             index: 0,
-//         }
-//     }
-// }
-
 impl ByteReader {
     pub fn from_file(path: &PathBuf) -> Result<Self, Error> {
         let mut file = File::open(path)?;
@@ -32,16 +23,10 @@ impl ByteReader {
         })
     }
 
-    // pub fn from(bytes: Vec<u8>) -> Self {
-    //     Self {
-    //         bytes: bytes.into(),
-    //         index: 0,
-    //     }
-    // }
-
     pub fn from<T>(bytes: T) -> Self
     where
-        T: Into<Arc<[u8]>>, {
+        T: Into<Arc<[u8]>>,
+    {
         Self {
             bytes: bytes.into(),
             index: 0,

@@ -86,6 +86,7 @@ impl Config {
             install_dir.clone().join("database/database.arz"),  // base game
             install_dir.clone().join("gdx1/database/GDX1.arz"), // Ashes of Malmouth
             install_dir.clone().join("gdx2/database/GDX2.arz"), // Forgotten Gods
+            install_dir.clone().join("gdx3/database/GDX3.arz"), // Fangs of Asterkarn
         ];
         return_valid_paths(&paths)
     }
@@ -100,6 +101,7 @@ impl Config {
             install_dir.clone().join(format!("resources/Text_{lang}.arc")),
             install_dir.clone().join(format!("gdx1/resources/Text_{lang}.arc")),
             install_dir.clone().join(format!("gdx2/resources/Text_{lang}.arc")),
+            install_dir.clone().join(format!("gdx3/resources/text_{lang}.arc").to_lowercase()), // FoA file name is in lower case
         ];
         return_valid_paths(&paths)
     }
