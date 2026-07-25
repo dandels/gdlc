@@ -31,11 +31,6 @@ use crate::inventory_item::InventoryItem;
 use crate::item_search::CompleteItem;
 use crate::item_search::LocalizationStrings;
 
-pub enum VersionNumber {
-    Stash(u32),
-    Inventory(u32),
-}
-
 const PROMPT: &str = "\nEnter search term: ";
 
 fn main() -> Result<(), Error> {
@@ -199,7 +194,7 @@ fn main() -> Result<(), Error> {
         );
         item_cache.sort_by(|(src_a, _), (src_b, _)| src_a.cmp(src_b));
         if !search_term.is_empty() {
-            println!("search term is {}, len {}", &search_term, search_term.len());
+            println!("search term is {}, len {}", search_term, search_term.len());
             search_cached(&item_cache, &search_term);
             print!("{PROMPT}");
         } else {
@@ -251,17 +246,17 @@ fn search_pairs_for_character(items: CharacterItems) -> Vec<(String, Vec<Invento
     let CharacterItems { name, inventory, stash } = items;
 
     let mut searches: Vec<(String, Vec<InventoryItem>)> = vec![
-        (format!("{} (equipped)", &name), inventory.equipment.to_vec()),
-        (format!("{} (weapon set 1)", &name), inventory.weapon_set_1.to_vec()),
-        (format!("{} (weapon set 2)", &name), inventory.weapon_set_2.to_vec()),
+        (format!("{} (equipped)", name), inventory.equipment.to_vec()),
+        (format!("{} (weapon set 1)", name), inventory.weapon_set_1.to_vec()),
+        (format!("{} (weapon set 2)", name), inventory.weapon_set_2.to_vec()),
     ];
 
     for (i, bag) in inventory.bags.into_iter().enumerate() {
-        searches.push((format!("{} bag {}", &name, i + 1), bag.items));
+        searches.push((format!("{} bag {}", name, i + 1), bag.items));
     }
 
     for (i, stash_tab) in stash.tabs.into_iter().enumerate() {
-        searches.push((format!("{} stash tab {}", &name, i + 1), stash_tab));
+        searches.push((format!("{} stash tab {}", name, i + 1), stash_tab));
     }
     searches
 }

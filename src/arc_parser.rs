@@ -95,13 +95,17 @@ pub fn read_archive(path: &PathBuf) -> Result<HashMap<String, String>, Error> {
     let mut indices = Vec::new();
     for (i, string) in strings.iter().enumerate() {
         let file_names = [
+            // just guessing all the gdx3 file names, they need checking
             c"tags_items.txt",
             c"tagsgdx1_items.txt",
             c"tagsgdx2_items.txt",
+            c"tagsgdx3_items.txt",
             c"tagsgdx2_endlessdungeon.txt",
+            c"tagsgdx3_endlessdungeon.txt",
             c"tags_storyelements.txt",
             c"tagsgdx1_storyelements.txt",
             c"tagsgdx2_storyelements.txt",
+            c"tagsgdx3_storyelements.txt",
         ];
         if file_names.iter().any(|s| string == s) {
             indices.push(i);

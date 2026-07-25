@@ -68,7 +68,7 @@ impl Decrypt {
         self.read_byte() != 0
     }
 
-    pub fn read_str(&mut self) -> Result<String, Error> {
+    pub fn read_str(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         let len = self.read_int();
         if len > 0 {
             let mut str_buf = self.byte_reader.read_n_bytes(len).to_owned();
@@ -78,8 +78,7 @@ impl Decrypt {
                 str_buf[i as usize] = byte;
             }
             // TODO error handling for invalid strings
-            let ret_str = String::from_utf8(str_buf).unwrap();
-            // println!("read_str {ret_str}");
+            let ret_str = String::from_utf8(str_buf)?;
             return Ok(ret_str);
         }
         Ok("".to_string())
@@ -127,19 +126,12 @@ impl Decrypt {
     pub fn read_block_end(&mut self, block: &Block) {
         let index: u32 = self.byte_reader.index.try_into().unwrap();
         if block.end != index {
-            let diff = index.abs_diff(block.end);
-            // println!(
-            // "Stream position is {index} but block end is {}. Delta: {}",
-            // block.end, diff
-            // );
-
-            // Backwards compatible way to deal with some data added in 1.3
-            for _ in 0..diff {
-                let _byte = self.read_byte();
-            }
+            panic!("Stream position is {index} but block end is {}. Delta: {}", block.end, index.abs_diff(block.end));
         }
-        if self.next_int() != 0 {
-            panic!("Expected end of block character 0.");
+
+        let end_int = self.next_int();
+        if end_int != 0 {
+            panic!("Expected end of block character 0, got {end_int}.");
         }
     }
 }

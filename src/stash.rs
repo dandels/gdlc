@@ -1,5 +1,3 @@
-use crate::VersionNumber;
-
 use super::decrypt::Decrypt;
 use super::inventory_item::InventoryItem;
 use std::io::Error;
@@ -15,16 +13,12 @@ pub struct StashItem {
 }
 
 impl StashItem {
-    pub fn read(decrypt: &mut Decrypt, version: &VersionNumber) -> Result<Self, Error> {
-        let item = InventoryItem::read(decrypt, version)?;
-        let x_offset = decrypt.read_int();
-        let y_offset = decrypt.read_int();
-
-        Ok(Self {
-            item,
-            x_offset,
-            y_offset,
-        })
+    pub fn read(decrypt: &mut Decrypt, version: u32) -> Self {
+        Self {
+            item: InventoryItem::read(decrypt, version),
+            x_offset: decrypt.read_int(),
+            y_offset: decrypt.read_int(),
+        }
     }
 }
 
@@ -37,34 +31,33 @@ impl Stash {
         let mut decrypt = Decrypt::new(path)?;
         let val = decrypt.read_int();
         assert_eq!(val, 2);
-        let (block_pos, block) = decrypt.read_block_start();
-        assert_eq!(block_pos, 18);
+        let (block_start, block_end) = decrypt.read_block_start();
+        assert_eq!(block_start, 18);
         let stash_version = decrypt.read_int();
-        if !(stash_version == 5 || stash_version == 9) {
-            println!("Unexpected stash version {stash_version}. Continuing, but something might break.");
-        }
+        assert!((5..=11).contains(&stash_version), "Expected stash version to be between 5 and 11.");
         assert_eq!(decrypt.next_int(), 0);
-        let _str_mod = decrypt.read_str()?;
+        let _str_mod = decrypt.read_str().unwrap();
+
         if stash_version >= 5 {
             let _has_expansion1 = decrypt.read_bool(); // does this refer to AoM?
         }
-        let stash_version = VersionNumber::Inventory(stash_version);
 
         let tabs_count = decrypt.read_int();
         let mut tabs = Vec::new();
 
         for _ in 0..tabs_count {
-            tabs.push(read_stash_tab(&mut decrypt, &stash_version)?);
+            tabs.push(read_stash_tab(&mut decrypt, stash_version)?);
         }
-        decrypt.read_block_end(&block);
+
+        decrypt.read_block_end(&block_end);
 
         Ok(Self { tabs })
     }
 }
 
-pub fn read_stash_tab(decrypt: &mut Decrypt, version: &VersionNumber) -> Result<Vec<InventoryItem>, Error> {
+pub fn read_stash_tab(decrypt: &mut Decrypt, version: u32) -> Result<Vec<InventoryItem>, Error> {
     let mut items = Vec::new();
-    let (block_start, tab_block) = decrypt.read_block_start();
+    let (block_start, block_end) = decrypt.read_block_start();
     if block_start != 0 {
         println!("Expected stash tab block start to be 0...");
     }
@@ -73,9 +66,16 @@ pub fn read_stash_tab(decrypt: &mut Decrypt, version: &VersionNumber) -> Result<
     let item_count = decrypt.read_int();
 
     for _ in 0..item_count {
-        let si = StashItem::read(decrypt, version)?;
+        let si = StashItem::read(decrypt, version);
         items.push(si.item);
     }
-    decrypt.read_block_end(&tab_block);
+    if version >= 9 {
+        let _border_index = decrypt.read_int();
+        let _border_color_index = decrypt.read_int();
+        let _symbol_index = decrypt.read_int();
+        let _symbol_color_index = decrypt.read_int();
+        let _button_name = decrypt.read_wide_string().unwrap();
+    }
+    decrypt.read_block_end(&block_end);
     Ok(items)
 }
