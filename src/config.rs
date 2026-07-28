@@ -82,13 +82,13 @@ impl Config {
             return Vec::new();
         }
         let install_dir = self.installation_dir().unwrap();
-        let paths = [
+        let mut paths = [
             install_dir.clone().join("database/database.arz"),  // base game
             install_dir.clone().join("gdx1/database/GDX1.arz"), // Ashes of Malmouth
             install_dir.clone().join("gdx2/database/GDX2.arz"), // Forgotten Gods
             install_dir.clone().join("gdx3/database/GDX3.arz"), // Fangs of Asterkarn
         ];
-        return_valid_paths(&paths)
+        return_valid_paths(&mut paths)
     }
 
     pub fn get_localization_files(&self) -> Vec<PathBuf> {
@@ -97,21 +97,27 @@ impl Config {
             return Vec::new();
         }
         let install_dir = self.installation_dir().unwrap();
-        let paths = [
+        let mut paths = [
             install_dir.clone().join(format!("resources/Text_{lang}.arc")),
             install_dir.clone().join(format!("gdx1/resources/Text_{lang}.arc")),
             install_dir.clone().join(format!("gdx2/resources/Text_{lang}.arc")),
-            install_dir.clone().join(format!("gdx3/resources/text_{lang}.arc").to_lowercase()), // FoA file name is in lower case
+            install_dir.clone().join(format!("gdx3/resources/Text_{lang}.arc")),
         ];
-        return_valid_paths(&paths)
+        return_valid_paths(&mut paths)
     }
 }
 
-fn return_valid_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+fn return_valid_paths(paths: &mut [PathBuf]) -> Vec<PathBuf> {
     let mut ret = Vec::new();
     for path in paths {
         if path.exists() {
             ret.push(path.to_path_buf());
+        } else {
+            let lowercase_name = path.file_name().unwrap().to_ascii_lowercase();
+            path.set_file_name(lowercase_name);
+            if path.exists() {
+                ret.push(path.to_path_buf());
+            }
         }
     }
     ret
