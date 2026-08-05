@@ -7,6 +7,7 @@ mod inventory_item;
 mod item_search;
 mod player;
 mod stash;
+mod test;
 
 use byte_reader::ByteReader;
 use config::Config;
@@ -27,7 +28,7 @@ use std::thread;
 
 use crate::arz_parser::Affixes;
 use crate::arz_parser::Items;
-use crate::inventory_item::InventoryItem;
+use crate::inventory_item::Item;
 use crate::item_search::CompleteItem;
 use crate::item_search::LocalizationStrings;
 
@@ -131,7 +132,8 @@ fn main() -> Result<(), Error> {
 
         let char_items_thread = s.spawn(|| {
             config.get_save_files().into_par_iter().filter_map(|save| match CharacterItems::read(&save) {
-                Ok(ci) => Some(search_pairs_for_character(ci)),
+                Ok(Some(ci)) => Some(search_pairs_for_character(ci)),
+                Ok(None) => None,
                 Err(e) => {
                     println!("Unable to read save file {:?}: {e}", save);
                     None
@@ -143,7 +145,7 @@ fn main() -> Result<(), Error> {
         stash_item_threads.push(s.spawn(|| {
             if let Some(path) = softcore_stash_path {
                 let softcore_stash = Stash::new(&path).unwrap();
-                let vec: Vec<(String, Vec<InventoryItem>)> = softcore_stash
+                let vec: Vec<(String, Vec<Item>)> = softcore_stash
                     .tabs
                     .into_iter()
                     .enumerate()
@@ -158,7 +160,7 @@ fn main() -> Result<(), Error> {
         stash_item_threads.push(s.spawn(|| {
             if let Some(path) = hardcore_stash_path {
                 let hardcore_stash = Stash::new(&path).unwrap();
-                let vec: Vec<(String, Vec<InventoryItem>)> = hardcore_stash
+                let vec: Vec<(String, Vec<Item>)> = hardcore_stash
                     .tabs
                     .into_iter()
                     .enumerate()
@@ -170,7 +172,7 @@ fn main() -> Result<(), Error> {
             }
         }));
 
-        let mut owned_items: Vec<(String, Vec<InventoryItem>)> = stash_item_threads
+        let mut owned_items: Vec<(String, Vec<Item>)> = stash_item_threads
             .into_iter()
             .filter_map(|t| t.join().ok()?)
             .fold(Vec::new(), |mut items, mut stash_tabs| {
@@ -242,10 +244,10 @@ fn search_cached(map: &[(String, Vec<CompleteItem>)], search_term: &str) {
     });
 }
 
-fn search_pairs_for_character(items: CharacterItems) -> Vec<(String, Vec<InventoryItem>)> {
+fn search_pairs_for_character(items: CharacterItems) -> Vec<(String, Vec<Item>)> {
     let CharacterItems { name, inventory, stash } = items;
 
-    let mut searches: Vec<(String, Vec<InventoryItem>)> = vec![
+    let mut searches: Vec<(String, Vec<Item>)> = vec![
         (format!("{} (equipped)", name), inventory.equipment.to_vec()),
         (format!("{} (weapon set 1)", name), inventory.weapon_set_1.to_vec()),
         (format!("{} (weapon set 2)", name), inventory.weapon_set_2.to_vec()),

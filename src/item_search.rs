@@ -1,5 +1,5 @@
 use crate::arz_parser::{AffixData, ItemData};
-use crate::inventory_item::InventoryItem;
+use crate::inventory_item::Item;
 
 use std::collections::HashMap;
 
@@ -106,7 +106,7 @@ fn fmt_printable(
 }
 
 impl ItemLookup {
-    pub fn lookup_item(&self, inventory_item: &InventoryItem) -> Option<CompleteItem> {
+    pub fn lookup_item(&self, inventory_item: &Item) -> Option<CompleteItem> {
         #[allow(clippy::manual_map)]
         #[allow(clippy::needless_match)]
         let item_data_opt = match self.tag_names.items.get(&inventory_item.base_name) {
@@ -225,7 +225,7 @@ impl ItemLookup {
         Some(ci)
     }
 
-    pub fn search_uncached(&self, owned_items: &Vec<(String, Vec<InventoryItem>)>) {
+    pub fn search_uncached(&self, owned_items: &Vec<(String, Vec<Item>)>) {
         owned_items.par_iter().for_each(|(item_source, items)| {
             items.par_iter().for_each(|inventory_item| {
                 if let Some(ci) = self.lookup_item(inventory_item) {

@@ -1,6 +1,6 @@
-use crate::inventory_item::InventoryItem;
+use crate::inventory_item::Item;
+use crate::inventory_item::StorageItem;
 use crate::stash;
-use crate::stash::StashItem;
 
 use super::decrypt::Decrypt;
 
@@ -8,20 +8,21 @@ use std::io::Error;
 use std::path::Path;
 
 pub struct PlayerStash {
-    pub tabs: Vec<Vec<InventoryItem>>,
+    pub tabs: Vec<Vec<Item>>,
 }
 impl PlayerStash {
     fn read(decrypt: &mut Decrypt) -> Result<PlayerStash, Error> {
-        let (block_start, block_end) = decrypt.read_block_start();
+        let block_start = decrypt.read_block_start();
         assert!(block_start == 4, "Expected player stash block to start with 4, was {block_start}.");
         let stash_version = decrypt.read_int();
         assert!((6..=11).contains(&stash_version), "Expected player stash version to be between 6 and 11.");
         let num_tabs = decrypt.read_int();
         let mut tabs = Vec::with_capacity(num_tabs as usize);
         for _ in 0..num_tabs {
+            // println!("stash tab {i}");
             tabs.push(stash::read_stash_tab(decrypt, stash_version)?);
         }
-        decrypt.read_block_end(&block_end);
+        decrypt.read_block_end();
         Ok(PlayerStash { tabs })
     }
 }
@@ -34,9 +35,9 @@ const WEAPON_SLOTS: usize = 2;
 pub struct Inventory {
     num_bags: u32,
     pub bags: Vec<Bag>,
-    pub equipment: [InventoryItem; EQUIPMENT_SLOTS],
-    pub weapon_set_1: [InventoryItem; WEAPON_SLOTS],
-    pub weapon_set_2: [InventoryItem; WEAPON_SLOTS],
+    pub equipment: [Item; EQUIPMENT_SLOTS],
+    pub weapon_set_1: [Item; WEAPON_SLOTS],
+    pub weapon_set_2: [Item; WEAPON_SLOTS],
     focused: u32,
     selected: u32,
     flag: u8,
@@ -47,77 +48,120 @@ pub struct Inventory {
 
 #[derive(Debug)]
 pub struct InventoryEquipment {
-    pub item: InventoryItem,
+    pub item: Item,
     #[allow(dead_code)]
     attached: u8,
 }
 
 impl InventoryEquipment {
     fn read(decrypt: &mut Decrypt, version: u32) -> Self {
-        Self {
-            item: InventoryItem::read(decrypt, version),
+        let ret = Self {
+            item: Item::read(decrypt, version),
             attached: decrypt.read_byte(),
-        }
+        };
+
+        #[cfg(feature = "debug-bytes")]
+        println!("attached is {}", ret.attached);
+
+        ret
     }
 }
 
-impl AsRef<InventoryItem> for InventoryEquipment {
-    fn as_ref(&self) -> &InventoryItem {
+impl AsRef<Item> for InventoryEquipment {
+    fn as_ref(&self) -> &Item {
         &self.item
     }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct Bag {
-    _some_bool: u8,
-    pub items: Vec<InventoryItem>,
+    pub items: Vec<Item>,
 }
 
 impl Bag {
     fn read(decrypt: &mut Decrypt, version: u32) -> Self {
-        let (block_start, block_end) = decrypt.read_block_start();
+        let block_start = decrypt.read_block_start();
         assert_eq!(block_start, 0, "Expected start of bag block to be zero");
+
+        let _is_ok = decrypt.read_bool(); // IA uses this as an "ok" check..?
+        // if !is_ok {
+        //     println!("not ok!");
+        // }
+
         let ret = Self {
-            _some_bool: decrypt.read_byte(),
             items: {
                 let len = decrypt.read_int();
+
+                #[cfg(feature = "debug-bytes")]
+                println!("there are {len} items");
+
                 let mut ret = Vec::with_capacity(len as usize);
-                for _ in 0..len {
-                    let item = StashItem::read(decrypt, version).item;
-                    ret.push(item);
+                #[allow(unused_variables)]
+                for i in 0..len {
+                    #[cfg(feature = "debug-bytes")]
+                    println!("item{i}, ver {version}");
+
+                    let si = StorageItem::read(decrypt, version, crate::inventory_item::StorageType::Bag);
+                    ret.push(si.item);
                 }
                 ret
             },
         };
-        decrypt.read_block_end(&block_end);
+        decrypt.read_block_end();
         ret
     }
 }
 
 impl Inventory {
-    fn read(decrypt: &mut Decrypt) -> Self {
-        let (start, block) = decrypt.read_block_start();
-        assert_eq!(start, 3);
+    fn read(decrypt: &mut Decrypt) -> Option<Self> {
+        let block_start = decrypt.read_block_start();
+        assert_eq!(block_start, 3);
         let inventory_version = decrypt.read_int();
         assert!((4..=11).contains(&inventory_version), "Expected inventory version to be between 4 and 11.");
         let flag = decrypt.read_byte();
-        if flag == 0 {
-            println!("This byte was supposed to be 0. The file format might be wrong, leading to unexpected results.");
+        // if flag != 0 {
+        //     println!(
+        //         "This byte was supposed to be 0, was {flag}. The file format might be wrong, leading to unexpected results."
+        //     );
+        // }
+
+        // Special case for characters that have not entered the game yet
+        if decrypt.blocks.last().unwrap().len == 5 {
+            decrypt.read_block_end();
+            return None;
         }
 
         let num_bags = decrypt.read_int();
         let focused = decrypt.read_int();
         let selected = decrypt.read_int();
+
         let mut bags = Vec::with_capacity(num_bags as usize);
+
+        #[cfg(feature = "debug-bytes")]
+        println!("there are {num_bags} bags");
+
         for _ in 0..num_bags {
             bags.push(Bag::read(decrypt, inventory_version));
         }
-        let use_alternate = decrypt.read_byte();
+
+        #[cfg(feature = "debug-bytes")]
+        println!("end of bags");
+        let use_alternate = decrypt.read_byte(); // weapon swapping enabled?
+
+        #[cfg(feature = "debug-bytes")]
+        println!("use_alternate {use_alternate}\nequipment");
+
         let equipment = std::array::from_fn(|_| InventoryEquipment::read(decrypt, inventory_version)).map(|i| i.item);
         let alternate_1 = decrypt.read_byte();
+
+        #[cfg(feature = "debug-bytes")]
+        println!("alternate1 {alternate_1}\nweaponset1");
         let weapon_set_1 =
             std::array::from_fn(|_| InventoryEquipment::read(decrypt, inventory_version)).map(|i| i.item);
         let alternate_2 = decrypt.read_byte();
+
+        #[cfg(feature = "debug-bytes")]
+        println!("alternate2 {alternate_2}\nweaponset2");
         let weapon_set_2 =
             std::array::from_fn(|_| InventoryEquipment::read(decrypt, inventory_version)).map(|i| i.item);
 
@@ -134,8 +178,8 @@ impl Inventory {
             alternate_1,
             alternate_2,
         };
-        decrypt.read_block_end(&block);
-        ret
+        decrypt.read_block_end();
+        Some(ret)
     }
 }
 
@@ -168,18 +212,18 @@ struct CharacterInfo {
 }
 
 fn skip_block_with_size_n(decrypt: &mut Decrypt, expected_start: u32, version: u32, size: usize) {
-    let (start, block) = decrypt.read_block_start();
+    let start = decrypt.read_block_start();
     assert_eq!(start, expected_start);
     assert_eq!(decrypt.read_int(), version);
     for _ in 0..size {
         decrypt.read_byte();
     }
-    decrypt.read_block_end(&block);
+    decrypt.read_block_end();
 }
 
 impl CharacterInfo {
     fn read(decrypt: &mut Decrypt) -> Self {
-        let (start, block) = decrypt.read_block_start();
+        let start = decrypt.read_block_start();
         assert_eq!(start, 1);
         let version = decrypt.read_int();
         assert_eq!(version, 5); // version == 5
@@ -195,7 +239,7 @@ impl CharacterInfo {
         let skill_window_show_help = decrypt.read_byte();
         let weapon_swap_active = decrypt.read_byte();
         let weapon_swap_enabled = decrypt.read_byte();
-        let texture = decrypt.read_str().unwrap();
+        let texture = decrypt.read_string().unwrap();
         let loot_filter_len = decrypt.read_int();
 
         let mut loot_filter = Vec::with_capacity(loot_filter_len as usize);
@@ -220,7 +264,7 @@ impl CharacterInfo {
             loot_filter,
         };
 
-        decrypt.read_block_end(&block);
+        decrypt.read_block_end();
         ret
     }
 }
@@ -228,9 +272,9 @@ impl CharacterInfo {
 impl PlayerHeader {
     fn read(decrypt: &mut Decrypt) -> Self {
         Self {
-            name: decrypt.read_wide_string().unwrap(),
+            name: decrypt.read_wide_string(),
             _sex: decrypt.read_bool(),
-            _class_tag: decrypt.read_str().unwrap(),
+            _class_tag: decrypt.read_string().unwrap(),
             _level: decrypt.read_int(),
             _hardcore: decrypt.read_bool(),
         }
@@ -244,13 +288,15 @@ pub struct CharacterItems {
 }
 
 impl CharacterItems {
-    pub fn read(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn read(path: impl AsRef<Path>) -> Result<Option<Self>, Error> {
         let mut decrypt = Decrypt::new(path)?;
-        assert_eq!(decrypt.read_int(), 0x58434447);
-        assert_eq!(decrypt.read_int(), 2);
-        let header = PlayerHeader::read(&mut decrypt);
+        assert_eq!(decrypt.read_int().to_le_bytes(), "GDCX".as_bytes());
+        assert_eq!(decrypt.read_int(), 2); // start of transmission?
+        let player_header = PlayerHeader::read(&mut decrypt);
+        // println!("Player name {}", header.name);
         let _byte = decrypt.read_byte();
-        assert_eq!(decrypt.next_int(), 0); // end of block
+        // println!("byte is {byte}");
+        assert_eq!(decrypt.next_int(), 0); // end of block?
         let version = decrypt.read_int();
         assert_eq!(version, 8);
 
@@ -261,12 +307,15 @@ impl CharacterItems {
         let _char_info = CharacterInfo::read(&mut decrypt);
         skip_block_with_size_n(&mut decrypt, 2, 8, 44); // skip character bio
         let inventory = Inventory::read(&mut decrypt);
-        let stash = PlayerStash::read(&mut decrypt)?;
+        if inventory.is_none() {
+            return Ok(None); // Character not logged in yet? In that case Stash is also always empty
+        }
+        let stash = PlayerStash::read(&mut decrypt).unwrap();
 
-        Ok(Self {
-            name: header.name,
-            inventory,
+        Ok(Some(Self {
+            name: player_header.name,
+            inventory: inventory.unwrap(),
             stash,
-        })
+        }))
     }
 }

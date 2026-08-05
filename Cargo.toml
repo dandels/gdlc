@@ -1,6 +1,6 @@
 [package]
 name = "gdlc"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 
 [dependencies]
@@ -11,3 +11,6 @@ rayon = "1.11.0"
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
+
+[features]
+debug-bytes = []
